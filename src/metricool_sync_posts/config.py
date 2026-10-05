@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -85,10 +85,18 @@ class Settings(BaseSettings):
     # Optional ctw-cover-agent (sibling repo on CTW_COVER_AGENT_PATH)
     ctw_cover_agent_path: str | None = Field(default=None, alias="CTW_COVER_AGENT_PATH")
     dropbox_access_token: str | None = Field(default=None, alias="DROPBOX_ACCESS_TOKEN")
-    require_cover_for_schedule: bool = Field(
-        default=False,
+    require_cover_for_schedule_override: bool | None = Field(
+        default=None,
         alias="REQUIRE_COVER_FOR_SCHEDULE",
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def require_cover_for_schedule(self) -> bool:
+        """True by default when ENABLE_SCHEDULE is on; REQUIRE_COVER_FOR_SCHEDULE=false opts out."""
+        if self.require_cover_for_schedule_override is not None:
+            return self.require_cover_for_schedule_override
+        return self.enable_schedule
 
     def ensure_data_dirs(self) -> None:
         self.media_work_dir.mkdir(parents=True, exist_ok=True)

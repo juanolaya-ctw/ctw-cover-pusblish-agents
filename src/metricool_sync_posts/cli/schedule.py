@@ -16,6 +16,9 @@ def main() -> None:
     settings = load_settings()
     if args.enable:
         settings.enable_schedule = True
+        # Same default as env: require cover when schedule is enabled
+        if settings.require_cover_for_schedule_override is None:
+            settings.require_cover_for_schedule_override = True
     setup_logging(settings.log_level)
     stats = run_schedule(settings=settings, dry_run=args.dry_run or settings.dry_run)
     print(stats)
