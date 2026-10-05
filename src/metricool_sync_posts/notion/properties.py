@@ -53,6 +53,11 @@ def read_multi_select(props: dict[str, Any], name: str) -> list[str]:
     return [x.get("name", "") for x in (p.get("multi_select") or []) if x.get("name")]
 
 
+def read_protagonistas_label(props: dict[str, Any], name: str) -> str:
+    """Join Notion multi_select protagonistas for cover-agent task dict."""
+    return ", ".join(read_multi_select(props, name))
+
+
 def read_url(props: dict[str, Any], name: str) -> str | None:
     p = _prop(props, name)
     if not p:
@@ -98,6 +103,8 @@ class NotionPostRow:
         final_file_url: str | None,
         title: str,
         content_type: str | None,
+        miniatura_url: str | None,
+        protagonistas: str,
     ) -> None:
         self.page_id = page_id
         self.url = url
@@ -108,6 +115,8 @@ class NotionPostRow:
         self.final_file_url = final_file_url
         self.title = title
         self.content_type = content_type
+        self.miniatura_url = miniatura_url
+        self.protagonistas = protagonistas
 
 
 def _first_channel(props: dict[str, Any], name: str) -> str | None:
@@ -144,4 +153,6 @@ def row_from_page(page: dict[str, Any], settings_names: dict[str, str]) -> Notio
         final_file_url=read_url(props, settings_names["final_file"]),
         title=_first_or_rich_title(props, settings_names["title"]),
         content_type=_first_content_type(props, settings_names["content_type"]),
+        miniatura_url=read_url(props, settings_names["miniatura"]),
+        protagonistas=read_protagonistas_label(props, settings_names["protagonista"]),
     )

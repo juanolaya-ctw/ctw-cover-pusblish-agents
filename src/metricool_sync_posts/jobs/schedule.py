@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 
 from metricool_sync_posts.config import Settings
+from metricool_sync_posts.cover.attach import resolve_cover_url_for_metricool
+from metricool_sync_posts.cover.bridge import prepare_cover_for_publish_task
 from metricool_sync_posts.jobs.common import caption_for_row, publication_dt
 from metricool_sync_posts.jobs.content_types import build_schedule_body
 from metricool_sync_posts.media.pipeline import prepare_media_for_metricool
@@ -66,6 +68,34 @@ def run_schedule(*, settings: Settings, dry_run: bool | None = None) -> dict[str
                 stats["skipped"] += 1
                 logger.warning("Skip %s: empty caption", row.page_id)
                 continue
+            cover_enabled = bool((settings.ctw_cover_agent_path or "").strip())
+            cover_result = None
+            if cover_enabled:
+                cover_result = prepare_cover_for_publish_task(settings, row)
+
+            cover_bytes = None
+            if cover_result:
+                raw = cover_result.get("cover_bytes")
+                if isinstance(raw, (bytes, bytearray)):
+                    cover_bytes = bytes(raw)
+
+            if cover_enabled and settings.require_cover_for_schedule and not cover_bytes:
+                stats["skipped"] += 1
+                logger.warning(
+                    "Skip %s: REQUIRE_COVER_FOR_SCHEDULE and no cover_bytes from agent",
+                    row.page_id,
+                )
+                notify_slack(
+                    webhook_url=settings.slack_webhook_url,
+                    channel=settings.slack_channel,
+                    dedupe=dedupe,
+                    notion_page_id=row.page_id,
+                    reason="missing_cover",
+                    message=f"Schedule skip: missing cover for {row.url}",
+                    dry_run=dry,
+                )
+                continue
+
             media_url = None
             if row.final_file_url:
                 media_url = prepare_media_for_metricool(
@@ -74,6 +104,17 @@ def run_schedule(*, settings: Settings, dry_run: bool | None = None) -> dict[str
                     source_url=row.final_file_url,
                     dry_run=dry,
                 )
+
+            cover_url = None
+            if cover_bytes:
+                cover_url = resolve_cover_url_for_metricool(
+                    settings=settings,
+                    metricool=metricool,
+                    cover_bytes=cover_bytes,
+                    page_id=row.page_id,
+                    dry_run=dry,
+                )
+
             body = build_schedule_body(
                 caption=caption,
                 publication=pub,
@@ -82,6 +123,7 @@ def run_schedule(*, settings: Settings, dry_run: bool | None = None) -> dict[str
                 title=row.title,
                 content_type=row.content_type,
                 media_url=media_url,
+                cover_url=cover_url,
             )
             if dry:
                 logger.info("[dry-run] Would schedule Metricool post for %s", row.page_id)

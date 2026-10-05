@@ -32,6 +32,8 @@ class NotionRepository:
             "final_file": settings.notion_prop_final_file,
             "title": settings.notion_prop_title,
             "content_type": settings.notion_prop_content_type,
+            "miniatura": settings.notion_prop_miniatura,
+            "protagonista": settings.notion_prop_protagonista,
         }
 
     def _query(

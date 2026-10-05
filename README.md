@@ -86,6 +86,7 @@ Ver [.env.example](.env.example). Principales:
 - `METRICOOL_USER_TOKEN`, `METRICOOL_USER_ID`, `METRICOOL_BLOG_ID`
 - `ENABLE_SCHEDULE=false` (hasta reactivar producto)
 - `TRANSFER_SH_ENABLED` / `S3_*` para URLs públicas temporales tras remux ffmpeg
+- `CTW_COVER_AGENT_PATH`, `DROPBOX_ACCESS_TOKEN`, `REQUIRE_COVER_FOR_SCHEDULE` (integración opcional con ctw-cover-agent; ver Project store `docs/integracion-cover-agent.md`)
 - `SLACK_WEBHOOK_URL` (opcional, dedupe 6 h en `.data/slack-dedupe.json`)
 
 ## Estructura

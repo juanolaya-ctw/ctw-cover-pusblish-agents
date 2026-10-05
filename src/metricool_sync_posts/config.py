@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     notion_prop_content_type: str = Field(
         default="Tipo de contenido ", alias="NOTION_PROP_CONTENT_TYPE"
     )
+    notion_prop_miniatura: str = Field(default="Miniatura", alias="NOTION_PROP_MINIATURA")
+    notion_prop_protagonista: str = Field(
+        default="Protagonista", alias="NOTION_PROP_PROTAGONISTA"
+    )
     notion_status_approved: str = Field(
         default="Aprobado - Edición Final", alias="NOTION_STATUS_APPROVED"
     )
@@ -77,6 +81,14 @@ class Settings(BaseSettings):
 
     dry_run: bool = Field(default=False, alias="DRY_RUN")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+
+    # Optional ctw-cover-agent (sibling repo on CTW_COVER_AGENT_PATH)
+    ctw_cover_agent_path: str | None = Field(default=None, alias="CTW_COVER_AGENT_PATH")
+    dropbox_access_token: str | None = Field(default=None, alias="DROPBOX_ACCESS_TOKEN")
+    require_cover_for_schedule: bool = Field(
+        default=False,
+        alias="REQUIRE_COVER_FOR_SCHEDULE",
+    )
 
     def ensure_data_dirs(self) -> None:
         self.media_work_dir.mkdir(parents=True, exist_ok=True)
