@@ -1,5 +1,7 @@
 # Metricool Sync Posts
 
+Repositorio: [juanolaya-ctw/ctw-cover-pusblish-agents](https://github.com/juanolaya-ctw/ctw-cover-pusblish-agents)
+
 Automatización **sin costo de LLM** para la Parrilla de Contenido (Notion → Metricool → redes). Tres jobs independientes invocables por cron o manualmente.
 
 Marca de referencia: **Colombia Tech** (`METRICOOL_BLOG_ID=5822365`, zona `America/Bogota`).
