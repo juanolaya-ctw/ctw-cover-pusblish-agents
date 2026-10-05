@@ -42,14 +42,16 @@ class NotionRepository:
         results: list[dict[str, Any]] = []
         cursor: str | None = None
         while True:
-            kwargs: dict[str, Any] = {
-                "database_id": self._settings.notion_database_id,
+            query_kwargs: dict[str, Any] = {
                 "filter": filter_obj,
                 "page_size": min(page_size, 100),
             }
             if cursor:
-                kwargs["start_cursor"] = cursor
-            resp = self._client.databases.query(**kwargs)
+                query_kwargs["start_cursor"] = cursor
+            resp = self._client.data_sources.query(
+                self._settings.notion_database_id,
+                **query_kwargs,
+            )
             results.extend(resp.get("results") or [])
             if not resp.get("has_more"):
                 break
@@ -160,9 +162,7 @@ class NotionRepository:
         raise RuntimeError(f"Could not update status property {prop!r} on page {page_id}")
 
     def list_databases(self) -> list[dict[str, Any]]:
-        """Search workspace for databases (discover helper)."""
-        resp = self._client.search(
-            filter={"property": "object", "value": "database"},
-            page_size=100,
-        )
-        return resp.get("results") or []
+        """Search workspace for data sources (discover helper)."""
+        from metricool_sync_posts.notion.discover_util import search_data_sources
+
+        return search_data_sources(self._client)
