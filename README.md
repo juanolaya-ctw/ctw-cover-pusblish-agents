@@ -114,6 +114,8 @@ pytest -q
 ruff check src tests
 ```
 
+CI en GitHub Actions (opcional): requiere un PAT con scope `workflow`. Plantilla: `docs/ci-lint-workflow.yml` → copiar a `.github/workflows/lint.yml`.
+
 ## Pendiente de piloto con credenciales reales
 
 - Validar nombres exactos de propiedades Notion (Estado vs select)
