@@ -28,6 +28,7 @@ notion-aprobado-metricool = "metricool_sync_posts.cli.schedule:main"
 notion-publicado-metricool = "metricool_sync_posts.cli.confirm_published:main"
 notion-sync-fechas-metricool = "metricool_sync_posts.cli.sync_dates:main"
 metricool-discover = "metricool_sync_posts.cli.discover:main"
+metricool-discover-schema = "metricool_sync_posts.cli.discover_schema:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

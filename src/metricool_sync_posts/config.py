@@ -18,14 +18,18 @@ class Settings(BaseSettings):
     # Notion
     notion_token: str = Field(alias="NOTION_TOKEN")
     notion_database_id: str = Field(alias="NOTION_DATABASE_ID")
-    notion_prop_status: str = Field(default="Estado", alias="NOTION_PROP_STATUS")
+    notion_prop_status: str = Field(
+        default="Estado de la publicación", alias="NOTION_PROP_STATUS"
+    )
     notion_prop_publication: str = Field(default="Publicación", alias="NOTION_PROP_PUBLICATION")
-    notion_prop_channel: str = Field(default="Canal", alias="NOTION_PROP_CHANNEL")
+    notion_prop_channel: str = Field(default="Canal ", alias="NOTION_PROP_CHANNEL")
     notion_prop_caption: str = Field(default="Caption", alias="NOTION_PROP_CAPTION")
     notion_prop_final_file: str = Field(default="Archivo Final", alias="NOTION_PROP_FINAL_FILE")
-    notion_prop_title: str = Field(default="Título", alias="NOTION_PROP_TITLE")
+    notion_prop_title: str = Field(
+        default="Titulo de la publicación ", alias="NOTION_PROP_TITLE"
+    )
     notion_prop_content_type: str = Field(
-        default="Tipo de contenido", alias="NOTION_PROP_CONTENT_TYPE"
+        default="Tipo de contenido ", alias="NOTION_PROP_CONTENT_TYPE"
     )
     notion_status_approved: str = Field(
         default="Aprobado - Edición Final", alias="NOTION_STATUS_APPROVED"

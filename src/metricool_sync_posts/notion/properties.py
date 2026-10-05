@@ -110,6 +110,27 @@ class NotionPostRow:
         self.content_type = content_type
 
 
+def _first_channel(props: dict[str, Any], name: str) -> str | None:
+    multi = read_multi_select(props, name)
+    if multi:
+        return multi[0]
+    return read_select(props, name)
+
+
+def _first_or_rich_title(props: dict[str, Any], name: str) -> str:
+    t = read_title(props, name)
+    if t:
+        return t
+    return read_rich_text(props, name)
+
+
+def _first_content_type(props: dict[str, Any], name: str) -> str | None:
+    multi = read_multi_select(props, name)
+    if multi:
+        return multi[0]
+    return read_select(props, name)
+
+
 def row_from_page(page: dict[str, Any], settings_names: dict[str, str]) -> NotionPostRow:
     props = page.get("properties") or {}
     caption = read_rich_text(props, settings_names["caption"])
@@ -118,9 +139,9 @@ def row_from_page(page: dict[str, Any], settings_names: dict[str, str]) -> Notio
         url=page.get("url", ""),
         status=read_select(props, settings_names["status"]),
         publication=read_date(props, settings_names["publication"]),
-        channel=read_select(props, settings_names["channel"]),
+        channel=_first_channel(props, settings_names["channel"]),
         caption=caption,
         final_file_url=read_url(props, settings_names["final_file"]),
-        title=read_title(props, settings_names["title"]),
-        content_type=read_select(props, settings_names["content_type"]),
+        title=_first_or_rich_title(props, settings_names["title"]),
+        content_type=_first_content_type(props, settings_names["content_type"]),
     )

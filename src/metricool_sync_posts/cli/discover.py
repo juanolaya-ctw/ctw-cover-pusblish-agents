@@ -41,7 +41,7 @@ def main() -> None:
             "No hay data sources visibles para esta integración.\n"
             "Checklist:\n"
             "  1. NOTION_TOKEN = secret de la integración correcta (workspace CTW).\n"
-            "  2. En Notion: abrir «Parrilla de Contenido - CTW» → ⋯ → Connections → añadir la integración.\n"
+            "  2. En Notion: Parrilla CTW → ⋯ → Connections → añadir la integración.\n"
             "  3. Repetir: python3 -m metricool_sync_posts.cli.discover --query Parrilla\n"
             "  4. Si sigue vacío, probar sin filtro: python3 -m metricool_sync_posts.cli.discover",
             file=sys.stderr,
