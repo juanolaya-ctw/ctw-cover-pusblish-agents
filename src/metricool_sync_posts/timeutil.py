@@ -31,6 +31,17 @@ def publication_window(center: date, tz_name: str, days: int) -> tuple[datetime,
     return start, end
 
 
+def publication_sort_key(value: date | datetime | None, fallback: datetime) -> datetime:
+    """Normalize Notion publication for stable sorting (date vs datetime rows)."""
+    if value is None:
+        return fallback
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=fallback.tzinfo)
+        return value
+    return datetime.combine(value, datetime.min.time(), tzinfo=fallback.tzinfo)
+
+
 def notion_date_to_datetime(value: date | datetime, tz_name: str) -> datetime:
     zone = tz(tz_name)
     if isinstance(value, datetime):

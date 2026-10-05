@@ -15,6 +15,7 @@ from metricool_sync_posts.notion.queries import (
     week_publication_filter,
     window_publication_filter,
 )
+from metricool_sync_posts.timeutil import publication_sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,9 @@ class NotionRepository:
                 rows.append(row_from_page(page, self._prop_names))
             if rows:
                 break
-        rows.sort(key=lambda r: (r.publication or week_start.date(), r.page_id))
+        rows.sort(
+            key=lambda r: (publication_sort_key(r.publication, week_start), r.page_id)
+        )
         return rows[:limit]
 
     def fetch_scheduled_in_window(
@@ -117,7 +120,9 @@ class NotionRepository:
                 rows.append(row_from_page(page, self._prop_names))
             if rows:
                 break
-        rows.sort(key=lambda r: (r.publication or window_start.date(), r.page_id))
+        rows.sort(
+            key=lambda r: (publication_sort_key(r.publication, window_start), r.page_id)
+        )
         return rows[:limit]
 
     def page_body_plain_text(self, page_id: str) -> str:
