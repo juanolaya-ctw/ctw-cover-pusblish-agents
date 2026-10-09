@@ -63,6 +63,19 @@ _GENERIC_TOKENS = frozenset(
         "digital",
         "publico",
         "publica",
+        # Repeated CTAs. "Comenta X y te enviamos la información" is on unrelated posts.
+        "comenta",
+        "comentamos",
+        "enviamos",
+        "envianos",
+        "informacion",
+        "entender",
+        "entiende",
+        "desliza",
+        "aplicar",
+        "postular",
+        "postularte",
+        "postularme",
     }
 )
 
@@ -673,6 +686,67 @@ def slot_supports_same_piece(
     if _best_field_similarity(caption, title, post) >= _SLOT_MIN_SIMILARITY:
         return True
     return shares_distinctive_tokens(caption, title, post)
+
+
+def _score_against_post(source: str, post: dict[str, Any]) -> float:
+    best = 0.0
+    for field in _post_text_fields(post):
+        if field.strip():
+            best = max(best, _slot_copy_similarity(source, field))
+    return best
+
+
+def format_match_evidence(
+    post: dict[str, Any],
+    *,
+    caption: str,
+    title: str | None,
+    tz_name: str,
+    notion_publication: datetime | None,
+    network: str | None = None,
+    networks: list[str] | None = None,
+    media_urls: list[str] | None = None,
+    stored_id: str | None = None,
+    stored_uuid: str | None = None,
+) -> str:
+    """One audit line: why this post did or did not match."""
+    caption_score = _score_against_post(caption, post)
+    title_score = _score_against_post(title or "", post)
+    wanted = _wanted_from_args(network, networks)
+    slot = _same_publication_slot(post, notion_publication, tz_name, wanted)
+    media = media_overlaps(media_urls, post)
+    overlap = (distinctive_tokens(caption) | distinctive_tokens(title or "")) & set().union(
+        *(distinctive_tokens(field) for field in _post_text_fields(post))
+    )
+    post_id = str(post.get("id") or post.get("postId") or "")
+    post_uuid = str(post.get("uuid") or "")
+    identified = _copy_identifies_post(
+        post,
+        caption=caption,
+        title=title,
+        tz_name=tz_name,
+        notion_publication=notion_publication,
+    )
+    if stored_id and post_id and post_id == stored_id.strip():
+        reason = "id"
+    elif stored_uuid and post_uuid and post_uuid == stored_uuid.strip():
+        reason = "uuid"
+    elif identified and caption_score >= title_score:
+        reason = "caption"
+    elif identified:
+        reason = "title"
+    elif slot and slot_supports_same_piece(post, caption=caption, title=title):
+        reason = "slot"
+    elif media:
+        reason = "media"
+    else:
+        reason = "none"
+    overlap_text = ",".join(sorted(overlap)) if overlap else "-"
+    return (
+        f"reason={reason} caption_score={caption_score:.3f} "
+        f"title_score={title_score:.3f} media={str(media).lower()} "
+        f"slot={str(slot).lower()} overlap={overlap_text}"
+    )
 
 
 def _same_publication_slot(

@@ -1,0 +1,2127 @@
+{
+ "notion_page": {
+  "object": "page",
+  "id": "3f299829-d217-81cf-83ee-e66e8ef5139b",
+  "created_time": "2026-10-07T11:24:00.000Z",
+  "last_edited_time": "2026-10-09T02:12:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+   "type": "database_id",
+   "database_id": "29f99829-d217-80b4-9ab6-dc7f8f02d310"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "Herramienta de creación": {
+    "id": "%3BqXI",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "b2de7181-ffda-44c6-9166-c7a08d9ad790",
+      "name": "Claude",
+      "color": "blue"
+     }
+    ]
+   },
+   "Material 2": {
+    "id": "%3DRr%7C",
+    "type": "url",
+    "url": null
+   },
+   "Open Rate %": {
+    "id": "%3EECD",
+    "type": "number",
+    "number": null
+   },
+   "Publicación": {
+    "id": "BWR%5E",
+    "type": "date",
+    "date": {
+     "start": "2026-10-11T15:00:00.000-05:00",
+     "end": null,
+     "time_zone": null
+    }
+   },
+   "Caption": {
+    "id": "CoQ%5E",
+    "type": "rich_text",
+    "rich_text": [
+     {
+      "type": "text",
+      "text": {
+       "content": "Colombia quedó fuera del top 10 de gobierno digital de la OCDE. El reto no es solo poner trámites en línea, sino lograr que las entidades, los datos y los servicios públicos trabajen conectados.\nDesliza para entender qué están haciendo otros países.\nComenta GOVTECH y te enviamos la información para postularte al GovTech Summit.\n#GobiernoDigital #GovTech #casosinnovacion",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "Colombia quedó fuera del top 10 de gobierno digital de la OCDE. El reto no es solo poner trámites en línea, sino lograr que las entidades, los datos y los servicios públicos trabajen conectados.\nDesliza para entender qué están haciendo otros países.\nComenta GOVTECH y te enviamos la información para postularte al GovTech Summit.\n#GobiernoDigital #GovTech #casosinnovacion",
+      "href": null
+     }
+    ]
+   },
+   "Seen Rate WhatsApp %": {
+    "id": "EwXS",
+    "type": "number",
+    "number": null
+   },
+   "Recurso Manychat": {
+    "id": "GoHm",
+    "type": "select",
+    "select": {
+     "id": "e[wa",
+     "name": "Recurso",
+     "color": "green"
+    }
+   },
+   "Archivo Final": {
+    "id": "I%3B%5D%5C",
+    "type": "url",
+    "url": "https://drive.google.com/drive/folders/1L9DJnRPO4FqEsgIPRaW1B5hUiykRKYjr?usp=sharing"
+   },
+   "Miniatura": {
+    "id": "I%3F%3A%7C",
+    "type": "url",
+    "url": null
+   },
+   "Eje de contenido": {
+    "id": "IW%3CF",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "O<QX",
+      "name": "Tendencia",
+      "color": "blue"
+     },
+     {
+      "id": "f4615d5d-16ff-43f0-9463-5bf68b683e27",
+      "name": "Evento",
+      "color": "orange"
+     }
+    ]
+   },
+   "Solicitudes Growth": {
+    "id": "JmAV",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Evento": {
+    "id": "MK%5Ct",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "R]<i",
+      "name": "GovTech",
+      "color": "blue"
+     }
+    ]
+   },
+   "Protagonista": {
+    "id": "O%3Dm%7B",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "01aaa6c5-22b0-4e45-adae-9a507f708d68",
+      "name": "GovTech",
+      "color": "red"
+     }
+    ]
+   },
+   "Fecha Solicitud": {
+    "id": "QSJ%3B",
+    "type": "date",
+    "date": {
+     "start": "2026-10-07",
+     "end": null,
+     "time_zone": null
+    }
+   },
+   "Titulo": {
+    "id": "R%3E%5BC",
+    "type": "rich_text",
+    "rich_text": []
+   },
+   "Objetivo ": {
+    "id": "VBWU",
+    "type": "select",
+    "select": {
+     "id": "07fa2132-5ccd-4608-8e28-e63f644a2b8f",
+     "name": "Awareness",
+     "color": "purple"
+    }
+   },
+   "Categoria ": {
+    "id": "VdPI",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "BT\\l",
+      "name": "Valor",
+      "color": "blue"
+     }
+    ]
+   },
+   "Fecha pieza lista": {
+    "id": "Vj%3F%7C",
+    "type": "date",
+    "date": {
+     "start": "2026-10-08",
+     "end": null,
+     "time_zone": null
+    }
+   },
+   "Audiencia": {
+    "id": "ZsZG",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "e0475ebb-dffe-45c0-9d27-2295de99ef41",
+      "name": "Gobierno / Institucional",
+      "color": "pink"
+     },
+     {
+      "id": "7bc6c2ab-b533-4142-9c43-88083f8994f5",
+      "name": "Founders + C-Level",
+      "color": "orange"
+     }
+    ]
+   },
+   "Estado de la publicación": {
+    "id": "%5Ela%7D",
+    "type": "status",
+    "status": {
+     "id": "ffa2a470-481f-4613-ab9e-243d213f573d",
+     "name": "Aprobado - Edición Final",
+     "color": "green"
+    }
+   },
+   "Fecha Grabación": {
+    "id": "%60ced",
+    "type": "date",
+    "date": null
+   },
+   "Owner": {
+    "id": "b%3DXZ",
+    "type": "people",
+    "people": [
+     {
+      "object": "user",
+      "id": "238d872b-594c-8162-b295-0002d165492e",
+      "name": "Valentina Ulloa",
+      "avatar_url": null,
+      "type": "person",
+      "person": {
+       "email": "valentina@colombiatechweek.co",
+       "email_verified": true
+      }
+     }
+    ]
+   },
+   "Pain": {
+    "id": "bD%5BC",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "\\E^I",
+      "name": "Posicionamiento en la región",
+      "color": "gray"
+     }
+    ]
+   },
+   "Etiqueta Fecha": {
+    "id": "lGS%3A",
+    "type": "select",
+    "select": {
+     "id": "ro{B",
+     "name": "Fecha Tentativa",
+     "color": "yellow"
+    }
+   },
+   "Inspiración": {
+    "id": "p%3AU%60",
+    "type": "url",
+    "url": "https://www.larepublica.co/globoeconomia/colombia-queda-detras-del-top-10-mundial-en-desarrollo-en-gobierno-digital-de-la-ocde-4328886"
+   },
+   "Canal ": {
+    "id": "raiI",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "uYI{",
+      "name": "Instagram",
+      "color": "purple"
+     }
+    ]
+   },
+   "Material 1 ": {
+    "id": "sKO%60",
+    "type": "url",
+    "url": null
+   },
+   "Tipo de contenido ": {
+    "id": "w%5EbN",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "d5956b5e-4939-4551-822e-a4e84937f523",
+      "name": "Carrusel",
+      "color": "blue"
+     }
+    ]
+   },
+   "Pilar editorial / Storytelling": {
+    "id": "%7DAXf",
+    "type": "select",
+    "select": {
+     "id": "57247fc9-faff-4bc2-8c31-aeb242c5b07a",
+     "name": "El Dato Incómodo",
+     "color": "red"
+    }
+   },
+   "Brief": {
+    "id": "~sqB",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Titulo de la publicación ": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "GovTech | Colombia cayó en el ranking de gobierno digital de la OCDE",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "GovTech | Colombia cayó en el ranking de gobierno digital de la OCDE",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/GovTech-Colombia-cay-en-el-ranking-de-gobierno-digital-de-la-OCDE-3f299829d21781cf83eee66e8ef5139b",
+  "public_url": null,
+  "archived": false,
+  "request_id": "bd7d1911-ee8c-44a0-be62-51814fa671af"
+ },
+ "notion_blocks": {
+  "object": "list",
+  "results": [
+   {
+    "object": "block",
+    "id": "e4198c31-5a35-42da-bf15-529c14be5e90",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Plataforma:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Plataforma:",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " Instagram | ",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " Instagram | ",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": "ICP:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "ICP:",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " Founders, talento y corporativos | ",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " Founders, talento y corporativos | ",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": "Slides:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Slides:",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " 8 | ",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " 8 | ",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": "Diseñador:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Diseñador:",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " Valentina Ulloa",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " Valentina Ulloa",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "2ae3639e-8943-408b-a2c4-da09d3105565",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Ángulo:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Ángulo:",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " Noticia de coyuntura centrada en la caída de Colombia en el Índice de Gobierno Digital 2025 de la OCDE. Cuánto cayó, quién nos superó y qué tienen que acá no, con pocas cifras y lenguaje sencillo. Cierra con el GovTech Summit.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " Noticia de coyuntura centrada en la caída de Colombia en el Índice de Gobierno Digital 2025 de la OCDE. Cuánto cayó, quién nos superó y qué tienen que acá no, con pocas cifras y lenguaje sencillo. Cierra con el GovTech Summit.",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "1d5259e7-648b-4d35-911d-e31828f39cc8",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": true,
+    "in_trash": false,
+    "type": "table",
+    "table": {
+     "table_width": 3,
+     "has_column_header": true,
+     "has_row_header": false
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "ace253c3-0ca6-4832-a260-cf85cf2ced05",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "CTA:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "CTA:",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " Comenta GOVTECH (ManyChat, link de aplicación al GovTech Summit).",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " Comenta GOVTECH (ManyChat, link de aplicación al GovTech Summit).",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "cf5ba4f6-c093-4324-aa31-0b3039dc7b57",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "ASSETS:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "ASSETS:",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " Logo GovTech Summit y línea de fuente al pie: \"Índice de Gobierno Digital 2025, OCDE.\"",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " Logo GovTech Summit y línea de fuente al pie: \"Índice de Gobierno Digital 2025, OCDE.\"",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "1fa5e99a-f4b2-4121-9f31-f11c509e8d29",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "TIEMPO ESTIMADO:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "TIEMPO ESTIMADO:",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " Diseño 2 horas",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " Diseño 2 horas",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "6b1fee21-7ac9-4eb8-aa07-8ac1be8ad968",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "heading_2",
+    "heading_2": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Por confirmar antes de publicar",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Por confirmar antes de publicar",
+       "href": null
+      }
+     ],
+     "is_toggleable": false,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "8fa839f0-107b-427c-8bf2-21da344d30c2",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "El puesto 7 de 2023 viene de una nota de La República de febrero de 2024. Confirmar con el informe de la OCDE que sea comparable con la medición 2025.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "El puesto 7 de 2023 viene de una nota de La República de febrero de 2024. Confirmar con el informe de la OCDE que sea comparable con la medición 2025.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "515f3f1b-23f1-41ca-99e6-10b593071867",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "\"Chile del puesto 32 al 10\" viene de una nota de MarcaChile. Confirmar en el informe.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "\"Chile del puesto 32 al 10\" viene de una nota de MarcaChile. Confirmar en el informe.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "de8c5795-5deb-4f57-a809-26ed24135d81",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "\"Portugal primero\" en la slide 5 corresponde a la dimensión \"Gobierno como plataforma\" según ",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "\"Portugal primero\" en la slide 5 corresponde a la dimensión \"Gobierno como plataforma\" según ",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": "digital.gov.pt",
+        "link": {
+         "url": "http://digital.gov.pt/"
+        }
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "digital.gov.pt",
+       "href": "http://digital.gov.pt/"
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": ". Confirmar en el informe 2025.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": ". Confirmar en el informe 2025.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "aca79dc2-ac97-496d-9393-6cd147fefc85",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Las fuentes no coinciden en el número de países evaluados (36 en el archivo base, 42 según Portugal). Por eso el carrusel no usa ese dato ni el puesto 16.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Las fuentes no coinciden en el número de países evaluados (36 en el archivo base, 42 según Portugal). Por eso el carrusel no usa ese dato ni el puesto 16.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "252a1026-b236-4313-9a84-83ff76a36ed7",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Hora de publicación tentativa (1:00 pm). Confirmar.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Hora de publicación tentativa (1:00 pm). Confirmar.",
+       "href": null
+      }
+     ],
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "48eba3d0-c367-426a-921e-73da5befed7b",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:01:00.000Z",
+    "last_edited_time": "2026-10-08T12:01:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "heading_2",
+    "heading_2": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Caption Instagram",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Caption Instagram",
+       "href": null
+      }
+     ],
+     "is_toggleable": false,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "2cdbdbdc-04ae-442c-8f4f-ba8a42439108",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:01:00.000Z",
+    "last_edited_time": "2026-10-08T12:01:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Colombia quedó fuera del top 10 de gobierno digital de la OCDE. El reto no es solo poner trámites en línea, sino lograr que las entidades, los datos y los servicios públicos trabajen conectados.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Colombia quedó fuera del top 10 de gobierno digital de la OCDE. El reto no es solo poner trámites en línea, sino lograr que las entidades, los datos y los servicios públicos trabajen conectados.",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "fcee4152-1939-45a7-887e-477a0a861eee",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:01:00.000Z",
+    "last_edited_time": "2026-10-08T12:01:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Desliza para entender qué están haciendo otros países.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Desliza para entender qué están haciendo otros países.",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "ef6e0128-515d-474e-8837-1651b8db2d27",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:01:00.000Z",
+    "last_edited_time": "2026-10-08T12:01:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Comenta GOVTECH y te enviamos la información para postularte al GovTech Summit.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Comenta GOVTECH y te enviamos la información para postularte al GovTech Summit.",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "ce0e960f-b0de-4188-acbc-528ab7cc029e",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:01:00.000Z",
+    "last_edited_time": "2026-10-08T12:01:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "#GobiernoDigital #GovTech #casosinnovacion",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "#GobiernoDigital #GovTech #casosinnovacion",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "c2ffdf3b-f256-49cf-848b-3f1620bbf10c",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:02:00.000Z",
+    "last_edited_time": "2026-10-08T12:02:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "heading_2",
+    "heading_2": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "ManyChat",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "ManyChat",
+       "href": null
+      }
+     ],
+     "is_toggleable": false,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "3dab0be8-7af4-40e7-bc1f-2fb22d44c071",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:02:00.000Z",
+    "last_edited_time": "2026-10-08T12:02:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Palabra clave:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Palabra clave:",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " GOVTECH",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " GOVTECH",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "25470fd4-fcc7-4e34-ae09-5fa5eff306f7",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:02:00.000Z",
+    "last_edited_time": "2026-10-08T12:02:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Botón 2:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Botón 2:",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " Ver otros recursos",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " Ver otros recursos",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "1c6503c5-cc36-4029-a38c-46f11d071fc1",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:02:00.000Z",
+    "last_edited_time": "2026-10-08T12:02:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Content Hub",
+        "link": {
+         "url": "https://colombiatechweek.co/content-hub?tab=guias&utm_medium=social&utm_source=instagram&utm_campaign=guias_y_recursos_content_hub"
+        }
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Content Hub",
+       "href": "https://colombiatechweek.co/content-hub?tab=guias&utm_medium=social&utm_source=instagram&utm_campaign=guias_y_recursos_content_hub"
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "7c106a02-9681-4e5a-9040-5ee922db20bf",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:02:00.000Z",
+    "last_edited_time": "2026-10-08T12:02:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Respuestas al comentario:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Respuestas al comentario:",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "99076df4-8c5a-4b89-9e21-9f2c1ca99772",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:02:00.000Z",
+    "last_edited_time": "2026-10-08T12:02:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "numbered_list_item",
+    "numbered_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Te enviamos el enlace por DM.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Te enviamos el enlace por DM.",
+       "href": null
+      }
+     ],
+     "color": "default",
+     "list_format": "numbers"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "f7c5562c-c5dd-4e3e-a6a5-56662f8465a9",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:02:00.000Z",
+    "last_edited_time": "2026-10-08T12:02:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "numbered_list_item",
+    "numbered_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Revisa tus mensajes.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Revisa tus mensajes.",
+       "href": null
+      }
+     ],
+     "color": "default",
+     "list_format": "numbers"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "7fff78a0-946a-4cf8-9ad4-ae4ab1cfe43d",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:02:00.000Z",
+    "last_edited_time": "2026-10-08T12:02:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "numbered_list_item",
+    "numbered_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Ya tienes la información por interno.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Ya tienes la información por interno.",
+       "href": null
+      }
+     ],
+     "color": "default",
+     "list_format": "numbers"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "92ae7815-bd29-4f76-9691-1febbc94fc9a",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:02:00.000Z",
+    "last_edited_time": "2026-10-08T12:02:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Mensaje por DM:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Mensaje por DM:",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " ¡Hola! El GovTech Summit reúne a entidades públicas, startups y empresas el 3 y 4 de noviembre en Bogotá. La participación es gratuita y por invitación, previa revisión de la postulación.",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " ¡Hola! El GovTech Summit reúne a entidades públicas, startups y empresas el 3 y 4 de noviembre en Bogotá. La participación es gratuita y por invitación, previa revisión de la postulación.",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "d8b003f9-a412-42fd-b8be-5defbc32c67e",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:02:00.000Z",
+    "last_edited_time": "2026-10-08T12:02:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Botón 1:",
+        "link": null
+       },
+       "annotations": {
+        "bold": true,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Botón 1:",
+       "href": null
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": " Postularme al GovTech Summit",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": " Postularme al GovTech Summit",
+       "href": null
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "7438917a-0390-437a-a05a-318aa29b6d03",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-08T12:02:00.000Z",
+    "last_edited_time": "2026-10-08T12:02:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "384d872b-594c-81e5-97ff-0002c0387a26"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "paragraph",
+    "paragraph": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Postulación",
+        "link": {
+         "url": "https://latamgovtech.com/?utm_source=instagram&utm_medium=social&utm_campaign=govtech_summit_2026&utm_content=ocde_gobierno_digital"
+        }
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Postulación",
+       "href": "https://latamgovtech.com/?utm_source=instagram&utm_medium=social&utm_campaign=govtech_summit_2026&utm_content=ocde_gobierno_digital"
+      }
+     ],
+     "icon": null,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "ee2a8620-ff7f-4cd9-84ab-eba47abda205",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "heading_2",
+    "heading_2": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "Fuentes",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "Fuentes",
+       "href": null
+      }
+     ],
+     "is_toggleable": false,
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "0ce97c4b-e03f-4946-aca6-3ec47a048bc8",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "La República: Colombia queda detrás del top 10 mundial en desarrollo en gobierno digital de la OCDE",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "La República: Colombia queda detrás del top 10 mundial en desarrollo en gobierno digital de la OCDE",
+       "href": null
+      }
+     ],
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "83b43c2c-20f5-453e-9546-0c9889c8fa24",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "digital.gov.pt",
+        "link": {
+         "url": "http://digital.gov.pt/"
+        }
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "digital.gov.pt",
+       "href": "http://digital.gov.pt/"
+      },
+      {
+       "type": "text",
+       "text": {
+        "content": ": Portugal sobe ao 3.º lugar no Índice de Governo Digital da OCDE",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": ": Portugal sobe ao 3.º lugar no Índice de Governo Digital da OCDE",
+       "href": null
+      }
+     ],
+     "color": "default"
+    },
+    "archived": false
+   },
+   {
+    "object": "block",
+    "id": "cfbf4f21-b144-4b0a-95a2-c88f38c81158",
+    "parent": {
+     "type": "page_id",
+     "page_id": "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    },
+    "created_time": "2026-10-07T11:24:00.000Z",
+    "last_edited_time": "2026-10-07T11:24:00.000Z",
+    "created_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "last_edited_by": {
+     "object": "user",
+     "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+    },
+    "has_children": false,
+    "in_trash": false,
+    "type": "bulleted_list_item",
+    "bulleted_list_item": {
+     "rich_text": [
+      {
+       "type": "text",
+       "text": {
+        "content": "MarcaChile: Chile sube 22 puestos y queda décimo en el ranking de gobierno digital de la OCDE",
+        "link": null
+       },
+       "annotations": {
+        "bold": false,
+        "italic": false,
+        "strikethrough": false,
+        "underline": false,
+        "code": false,
+        "color": "default"
+       },
+       "plain_text": "MarcaChile: Chile sube 22 puestos y queda décimo en el ranking de gobierno digital de la OCDE",
+       "href": null
+      }
+     ],
+     "color": "default"
+    },
+    "archived": false
+   }
+  ],
+  "next_cursor": null,
+  "has_more": false,
+  "type": "block",
+  "block": {},
+  "request_id": "648c1fc0-4707-427c-9479-1b5766921445"
+ },
+ "metricool_post": [
+  {
+   "id": 387636704,
+   "publicationDate": {
+    "dateTime": "2026-10-11T15:00:00",
+    "timezone": "America/Bogota"
+   },
+   "creationDate": {
+    "dateTime": "2026-10-04T00:07:00",
+    "timezone": "America/Bogota"
+   },
+   "text": "Truora ya hizo algo que muchas startups colombianas están intentando: convertir a México en parte de su operación regional.\n\nPero cruzar la frontera no es abrir una oficina y repetir el playbook de Colombia. Es entender el mercado, construir relaciones y encontrar los aliados correctos.\n\nThe Bridge nace para acelerar justamente esa parte.\n\nComenta MÉXICO y te enviamos la información para aplicar.\n#StartupsLatam #México #ExpansiónInternacional",
+   "firstCommentText": "",
+   "providers": [
+    {
+     "network": "instagram",
+     "status": "PENDING",
+     "detailedStatus": "Pending"
+    }
+   ],
+   "media": [
+    "https://static.metricool.com/planner/202610/5822365-file-1577704193363409315.jpeg",
+    "https://static.metricool.com/planner/202610/5822365-file-100638540471669150.jpeg",
+    "https://static.metricool.com/planner/202610/5822365-file-4110640262033040260.jpeg",
+    "https://static.metricool.com/planner/202610/5822365-file-15708996150208847208.jpeg",
+    "https://static.metricool.com/planner/202610/5822365-file-6703539183392234134.jpeg",
+    "https://static.metricool.com/planner/202610/5822365-file-12425678309958974447.jpeg",
+    "https://static.metricool.com/planner/202610/5822365-file-13971985193776849250.jpeg"
+   ],
+   "autoPublish": true,
+   "saveExternalMediaFiles": false,
+   "mediaAltText": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "shortener": false,
+   "draft": false,
+   "twitterData": {
+    "type": "POST"
+   },
+   "instagramData": {
+    "autoPublish": true,
+    "type": "POST",
+    "showReelOnFeed": true,
+    "isAiGenerated": false
+   },
+   "hasNotReadNotes": false,
+   "uuid": "3503050592408256754",
+   "creatorUserMail": "hello@colombiatechweek.co",
+   "creatorUserId": 4506278
+  }
+ ]
+}

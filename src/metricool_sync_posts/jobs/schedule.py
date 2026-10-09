@@ -33,6 +33,7 @@ from metricool_sync_posts.metricool.client import MetricoolClient
 from metricool_sync_posts.metricool.matching import (
     find_duplicate_candidates,
     find_slot_occupants,
+    format_match_evidence,
     post_state,
 )
 from metricool_sync_posts.notion.client import NotionRepository
@@ -164,8 +165,27 @@ def _claim_linked_posts(
                     hits.append(post)
         for hit in hits:
             key = _post_key(hit)
-            if key and key not in claimed:
-                claimed[key] = linked.page_id
+            if not key or key in claimed:
+                continue
+            claimed[key] = linked.page_id
+            logger.info(
+                "Match Notion %s -> Metricool %s %s",
+                linked.page_id,
+                key,
+                format_match_evidence(
+                    hit,
+                    caption=caption,
+                    title=getattr(linked, "title", None),
+                    tz_name=tz_name,
+                    notion_publication=publication_dt(linked, tz_name),
+                    networks=list(plan.networks),
+                    media_urls=(
+                        [linked.final_file_url] if getattr(linked, "final_file_url", None) else None
+                    ),
+                    stored_id=stored_id or None,
+                    stored_uuid=stored_uuid or None,
+                ),
+            )
     return claimed
 
 
@@ -404,6 +424,23 @@ def run_schedule(
                 hits = [hit for hit in raw_hits if _post_key(hit) not in claimed]
                 if len(hits) > 1:
                     stats["skipped"] += 1
+                    for hit in hits:
+                        logger.info(
+                            "Match Notion %s -> Metricool %s %s",
+                            row.page_id,
+                            _post_key(hit),
+                            format_match_evidence(
+                                hit,
+                                caption=caption,
+                                title=row.title,
+                                tz_name=settings.timezone,
+                                notion_publication=pub,
+                                networks=networks,
+                                media_urls=(
+                                    [row.final_file_url] if row.final_file_url else None
+                                ),
+                            ),
+                        )
                     ids = [hit.get("id") or hit.get("postId") for hit in hits]
                     logger.warning(
                         "Skip %s: ambiguous duplicate, Metricool posts %s",
@@ -425,6 +462,20 @@ def run_schedule(
                     continue
                 if len(hits) == 1:
                     chosen = hits[0]
+                    logger.info(
+                        "Match Notion %s -> Metricool %s %s",
+                        row.page_id,
+                        _post_key(chosen),
+                        format_match_evidence(
+                            chosen,
+                            caption=caption,
+                            title=row.title,
+                            tz_name=settings.timezone,
+                            notion_publication=pub,
+                            networks=networks,
+                            media_urls=[row.final_file_url] if row.final_file_url else None,
+                        ),
+                    )
                     _reconcile_existing(
                         settings=settings,
                         notion=notion,
@@ -447,6 +498,23 @@ def run_schedule(
                 )
                 if occupants:
                     stats["skipped"] += 1
+                    for occupant in occupants:
+                        logger.info(
+                            "Not the same piece Notion %s Metricool %s %s",
+                            row.page_id,
+                            _post_key(occupant),
+                            format_match_evidence(
+                                occupant,
+                                caption=caption,
+                                title=row.title,
+                                tz_name=settings.timezone,
+                                notion_publication=pub,
+                                networks=networks,
+                                media_urls=(
+                                    [row.final_file_url] if row.final_file_url else None
+                                ),
+                            ),
+                        )
                     ids = [_post_key(post) for post in occupants]
                     logger.warning(
                         "Skip %s: slot_conflict, Metricool posts %s",

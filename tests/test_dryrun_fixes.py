@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -33,7 +34,7 @@ from metricool_sync_posts.metricool.matching import (
     post_networks,
     post_state,
 )
-from metricool_sync_posts.notion.properties import _first_channel
+from metricool_sync_posts.notion.properties import _first_channel, row_from_page
 from metricool_sync_posts.slack.notify import notify_slack
 
 TZ = "America/Bogota"
@@ -1295,6 +1296,55 @@ _OCDE_CAPTION = (
 _TRUORA_CAPTION = (
     "Truora ya hizo algo que muchas startups colombianas siguen sin animarse a copiar"
 )
+
+
+def _prop_names(settings):
+    return {
+        "status": settings.notion_prop_status,
+        "publication": settings.notion_prop_publication,
+        "channel": settings.notion_prop_channel,
+        "caption": settings.notion_prop_caption,
+        "final_file": settings.notion_prop_final_file,
+        "title": settings.notion_prop_title,
+        "content_type": settings.notion_prop_content_type,
+        "miniatura": settings.notion_prop_miniatura,
+        "protagonista": settings.notion_prop_protagonista,
+        "metricool_id": settings.notion_prop_metricool_id,
+        "metricool_uuid": settings.notion_prop_metricool_uuid,
+    }
+
+
+def test_real_ocde_payload_is_not_reconciled_to_truora(tmp_path, caplog):
+    """Exact Notion page and Metricool post from the 3692b0a dry-run.
+
+    Shared CTA words (comenta / enviamos / información) must not make this a match.
+    """
+    payload = json.loads(
+        (Path(__file__).parent / "fixtures" / "ocde-vs-truora.json").read_text()
+    )
+    row = row_from_page(payload["notion_page"], _prop_names(_settings(tmp_path)))
+    post = payload["metricool_post"][0]
+    assert row.page_id == "3f299829-d217-81cf-83ee-e66e8ef5139b"
+    assert post["id"] == 387636704
+    with caplog.at_level("INFO"):
+        stats, notion, metricool, media, slack = _run_schedule(
+            tmp_path, [row], dry=True, posts=[post], linked=[]
+        )
+    assert stats["reconciled"] == 0
+    assert stats["scheduled"] == 0
+    assert stats["skipped"] == 1
+    notion.set_status.assert_not_called()
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    assert slack.call_args.kwargs["reason"] == "slot_conflict"
+    audit = [
+        line
+        for line in caplog.text.splitlines()
+        if "387636704" in line and "caption_score=" in line
+    ]
+    assert audit
+    assert "reason=none" in audit[0]
+    assert "overlap=-" in audit[0]
 
 
 def test_placeholders_are_detected_without_flagging_spanish_todo():
