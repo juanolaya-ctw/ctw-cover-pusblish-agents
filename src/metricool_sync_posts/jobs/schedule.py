@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import date, timedelta
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from metricool_sync_posts.build_info import build_label
@@ -57,8 +58,11 @@ def run_schedule(
     settings: Settings,
     dry_run: bool | None = None,
     only_publication_date: date | None = None,
+    only_page_id: str | None = None,
     exclude_channels: frozenset[str] | None = frozenset(),
 ) -> dict[str, int]:
+    # Validate before opening clients or running any pipeline step.
+    target_page = str(UUID(only_page_id)) if only_page_id is not None else None
     dry = settings.dry_run if dry_run is None else dry_run
     stats = {"queried": 0, "scheduled": 0, "skipped": 0, "errors": 0}
 
@@ -81,7 +85,14 @@ def run_schedule(
     fetch_limit = (
         100 if only_publication_date is not None else settings.schedule_max_per_run
     )
-    rows = notion.fetch_approved_current_week(week_start, week_end, limit=fetch_limit)
+    rows = notion.fetch_approved_current_week(
+        week_start, week_end, limit=None if target_page else fetch_limit
+    )
+    if target_page:
+        rows = [r for r in rows if str(UUID(r.page_id)) == target_page]
+        if len(rows) != 1:
+            metricool.close()
+            raise ValueError("--only-page-id must match exactly one approved row this week")
     if only_publication_date is not None:
         tz = settings.timezone
         rows = [r for r in rows if _publication_on_date(r, tz, only_publication_date)]
@@ -108,6 +119,9 @@ def run_schedule(
             dropped,
             len(rows),
         )
+    if target_page and len(rows) != 1:
+        metricool.close()
+        raise ValueError("--only-page-id row does not meet date/channel filters")
     rows.sort(
         key=lambda r: (
             publication_sort_key(r.publication, week_start),

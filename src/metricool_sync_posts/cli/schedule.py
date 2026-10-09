@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 from datetime import date
+from uuid import UUID
 
 from metricool_sync_posts.build_info import build_label
 from metricool_sync_posts.cli._args import add_dry_run, add_enable_schedule
@@ -30,6 +31,12 @@ def main() -> None:
         metavar="NAME",
         help="Skip rows whose Canal matches exactly (repeatable)",
     )
+    parser.add_argument(
+        "--only-page-id",
+        type=lambda value: str(UUID(value)),
+        metavar="UUID",
+        help="Only one approved row this week; fails closed if missing or excluded",
+    )
     args = parser.parse_args()
     settings = load_settings()
     if args.enable:
@@ -42,6 +49,7 @@ def main() -> None:
         settings=settings,
         dry_run=args.dry_run or settings.dry_run,
         only_publication_date=args.only_date,
+        only_page_id=args.only_page_id,
         exclude_channels=exclude,
     )
     print(stats)
