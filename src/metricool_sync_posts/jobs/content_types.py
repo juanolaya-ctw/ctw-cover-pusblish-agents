@@ -7,8 +7,15 @@ import unicodedata
 from datetime import datetime
 from typing import Any
 
+from metricool_sync_posts.media.pipeline import IMAGE_EXT, VIDEO_EXT, extension_from_url
 from metricool_sync_posts.metricool.channels import label_is_youtube_short, normalize_channel
 from metricool_sync_posts.timeutil import iso_metricool
+
+# ScheduledPostTikTokData in the Metricool swagger has photoCoverIndex and
+# autoAddMusic. That is a TikTok photo post (one image or a carousel). YouTube's
+# ScheduledPostYoutubeData only has video types (short/video), so images cannot
+# go to YouTube. A combined TikTok+YouTube post is one payload, so images skip.
+TIKTOK_PHOTO_POSTS = True
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +40,42 @@ def is_story_type(content_type: str | None) -> bool:
     """Historias / stories. Checked before a static piece on the same row."""
     ct = fold_text(content_type)
     return "historia" in ct or "stories" in ct or "story" in ct
+
+
+def _media_kind(url: str) -> str:
+    ext = extension_from_url(url)
+    if ext in VIDEO_EXT:
+        return "video"
+    if ext in IMAGE_EXT:
+        return "image"
+    return "unknown"
+
+
+def urls_are_only_images(urls: list[str] | None) -> bool:
+    """True when every URL is an image and there is at least one."""
+    if not urls:
+        return False
+    return all(_media_kind(url) == "image" for url in urls)
+
+
+def video_network_skip_reason(
+    networks: list[str],
+    media_urls: list[str] | None,
+) -> str | None:
+    """Skip image-only posts that a target network cannot accept.
+
+    YouTube always needs a video. TikTok images are sent only as a photo post,
+    which the swagger allows via photoCoverIndex, and only when YouTube is not
+    on the same payload.
+    """
+    if not urls_are_only_images(media_urls):
+        return None
+    chosen = {str(net).strip().lower() for net in networks}
+    if "youtube" in chosen:
+        return "no_video_for_network"
+    if "tiktok" in chosen and not TIKTOK_PHOTO_POSTS:
+        return "no_video_for_network"
+    return None
 
 
 def infer_instagram_type(title: str, content_type: str | None) -> str:
@@ -128,6 +171,9 @@ def build_schedule_body(
             # Official ScheduledPost schema: thumbnail is top-level, never extra media.
             body["videoThumbnailUrl"] = cover_url
         body["instagramData"] = ig_data
+    if "tiktok" in chosen and urls_are_only_images(urls):
+        # Swagger ScheduledPostTikTokData.photoCoverIndex: 0 is the first image.
+        body["tiktokData"] = {"photoCoverIndex": 0}
     return body
 
 

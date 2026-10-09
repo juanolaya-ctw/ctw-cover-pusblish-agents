@@ -107,7 +107,17 @@ def _sched_row(**overrides):
     return SimpleNamespace(**base)
 
 
-def _run_schedule(tmp_path, rows, *, dry, posts=None, linked=None, profiles=None, **settings_kw):
+def _run_schedule(
+    tmp_path,
+    rows,
+    *,
+    dry,
+    posts=None,
+    linked=None,
+    profiles=None,
+    media_urls=None,
+    **settings_kw,
+):
     settings = _settings(tmp_path, **settings_kw)
     notion, metricool = MagicMock(), MagicMock()
     notion.fetch_approved_current_week.return_value = rows
@@ -122,7 +132,7 @@ def _run_schedule(tmp_path, rows, *, dry, posts=None, linked=None, profiles=None
         patch("metricool_sync_posts.jobs.schedule.now_in", return_value=NOW),
         patch(
             "metricool_sync_posts.jobs.schedule.prepare_media_urls_for_metricool",
-            return_value=["https://cdn.example/video.mp4"],
+            return_value=media_urls or ["https://cdn.example/video.mp4"],
         ) as media,
         patch("metricool_sync_posts.jobs.schedule.notify_slack") as slack,
     ):

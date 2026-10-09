@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -20,6 +20,7 @@ from metricool_sync_posts.jobs.content_types import (
     build_schedule_body,
     is_miniatura_type,
     is_story_type,
+    video_network_skip_reason,
 )
 from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
 from metricool_sync_posts.media.final_file import FinalFileKind, classify_final_file
@@ -460,6 +461,26 @@ def run_schedule(
                     dry_run=dry,
                 )
                 continue
+            if not isinstance(row.publication, datetime):
+                stats["skipped"] += 1
+                logger.warning(
+                    "Skip %s: Publicación %s has no time",
+                    row.page_id,
+                    row.publication,
+                )
+                notify_slack(
+                    webhook_url=settings.slack_webhook_url,
+                    channel=settings.slack_channel,
+                    dedupe=dedupe,
+                    notion_page_id=row.page_id,
+                    reason="missing_time",
+                    message=(
+                        f"Schedule skip: Publicación {row.publication} has no time "
+                        f"for {row.url}; not scheduled at midnight"
+                    ),
+                    dry_run=dry,
+                )
+                continue
             caption = caption_for_row(notion, row)
             if caption and caption_has_placeholder(caption):
                 stats["skipped"] += 1
@@ -765,6 +786,29 @@ def run_schedule(
                     notion_page_id=row.page_id,
                     reason="missing_media",
                     message=f"Schedule skip: no media for {row.url}",
+                    dry_run=dry,
+                )
+                continue
+            video_skip = video_network_skip_reason(networks, media_urls)
+            if video_skip:
+                stats["skipped"] += 1
+                logger.warning(
+                    "Skip %s: %s for %s (media extensions are images)",
+                    row.page_id,
+                    video_skip,
+                    networks,
+                )
+                notify_slack(
+                    webhook_url=settings.slack_webhook_url,
+                    channel=settings.slack_channel,
+                    dedupe=dedupe,
+                    notion_page_id=row.page_id,
+                    reason=video_skip,
+                    message=(
+                        f"Schedule skip: {row.url} targets {networks} but the media "
+                        "are only images; YouTube needs a video, and a TikTok photo "
+                        "cannot share that payload"
+                    ),
                     dry_run=dry,
                 )
                 continue
