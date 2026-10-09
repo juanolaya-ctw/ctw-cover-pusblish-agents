@@ -153,10 +153,14 @@ def _claim_linked_posts(
             notion_publication=publication_dt(linked, tz_name),
             media_urls=[linked.final_file_url] if getattr(linked, "final_file_url", None) else None,
         )
-        stored_id = getattr(linked, "metricool_id", None)
-        if stored_id:
+        stored_id = str(getattr(linked, "metricool_id", None) or "").strip()
+        stored_uuid = str(getattr(linked, "metricool_uuid", None) or "").strip()
+        if stored_id or stored_uuid:
             for post in existing_posts:
-                if _post_key(post) == str(stored_id).strip():
+                post_uuid = str(post.get("uuid") or "").strip()
+                if (stored_id and _post_key(post) == stored_id) or (
+                    stored_uuid and post_uuid == stored_uuid
+                ):
                     hits.append(post)
         for hit in hits:
             key = _post_key(hit)

@@ -1328,19 +1328,41 @@ def test_placeholder_caption_is_skipped(tmp_path):
     assert slack.call_args.kwargs["reason"] == "placeholder_caption"
 
 
-def test_taken_slot_with_a_different_caption_is_not_reconciled(tmp_path):
-    """GovTech at 11-oct 15:00 must not inherit the Truora post that already owns that slot."""
+def test_govtech_ocde_is_not_reconciled_to_the_truora_post(tmp_path):
+    """Dry-run of 9c3c9e6 set 3f299829 to Programado off Metricool 387636704.
+
+    Character ratio on the long Spanish captions is about 0.3, which is not the
+    same piece. The Programado Truora row does not own that post by caption, so
+    the claim set cannot be what saves the reconcile.
+    """
+    ocde = (
+        "Colombia quedó fuera del top 10 de gobierno digital de la OCDE y este carrusel "
+        "explica qué mide el ranking y por qué el país perdió puestos este año. "
+        "El equipo de Colombia Tech recorre los indicadores, la brecha con los líderes "
+        "y lo que el sector público puede cambiar antes de la próxima medición."
+    )
+    truora_metricool = (
+        "Truora ya hizo algo que muchas startups colombianas siguen sin animarse a copiar. "
+        "Expandirse a México no es llevar el mismo producto: es reconstruir confianza, "
+        "compliance y el equipo comercial desde cero mientras el mercado pide pruebas."
+    )
+    truora_notion = (
+        "El carrusel arma el mapa de oficinas, socios y tiempos del salto regional. "
+        "No repite el guion del reel: lista decisiones, riesgos y el orden de llegada."
+    )
+    assert caption_similarity(ocde, truora_metricool) >= 0.3
     govtech = _sched_row(
         page_id="3f299829-d217-81cf-83ee-e66e8ef5139b",
         channel="Instagram",
         title="GovTech | Colombia cayó en el ranking de gobierno digital de la OCDE",
-        caption=_OCDE_CAPTION,
+        caption=ocde,
         publication=datetime(2026, 10, 11, 15, 0, tzinfo=BOG),
         content_type="Carrusel",
+        final_file_url="https://drive.google.com/drive/folders/1L9DJnRPO4FqEsgIPRaW1B5hUiykRKYjr",
     )
     truora_post = _post(
         post_id=387636704,
-        text=_TRUORA_CAPTION,
+        text=truora_metricool,
         when="2026-10-11T15:00:00",
         providers=[{"network": "instagram", "status": "PENDING"}],
     )
@@ -1348,14 +1370,23 @@ def test_taken_slot_with_a_different_caption_is_not_reconciled(tmp_path):
         page_id="3e699829-d217-80a7-9a14-e93f91cf2070",
         channel="Instagram",
         title="Carrusel: The bridge Truora",
-        caption=_TRUORA_CAPTION,
+        caption=truora_notion,
         publication=datetime(2026, 10, 11, 12, 0, tzinfo=BOG),
         status="Programado",
         content_type="Carrusel",
+        metricool_id=None,
+        metricool_uuid=None,
     )
-    assert caption_similarity(_OCDE_CAPTION, _TRUORA_CAPTION) < 0.3
+    assert find_duplicate_candidates(
+        [truora_post],
+        caption=truora_notion,
+        title=truora_row.title,
+        network="instagram",
+        tz_name=TZ,
+        notion_publication=datetime(2026, 10, 11, 12, 0, tzinfo=BOG),
+    ) == []
     stats, notion, metricool, media, slack = _run_schedule(
-        tmp_path, [govtech], dry=False, posts=[truora_post], linked=[truora_row]
+        tmp_path, [govtech], dry=True, posts=[truora_post], linked=[truora_row]
     )
     assert stats["scheduled"] == 0
     assert stats["reconciled"] == 0
@@ -1364,6 +1395,57 @@ def test_taken_slot_with_a_different_caption_is_not_reconciled(tmp_path):
     media.assert_not_called()
     notion.set_status.assert_not_called()
     assert slack.call_args.kwargs["reason"] == "slot_conflict"
+
+
+def test_programado_row_claims_post_by_id_or_uuid(tmp_path):
+    """A stored Metricool id/uuid on a Programado row blocks a second reconcile."""
+    caption = "cinco cosas que amamos de méxico y que el equipo repite en cada pieza"
+    approved = _sched_row(
+        page_id="3f299829-d217-81cf-83ee-e66e8ef5139b",
+        caption=caption,
+        publication=datetime(2026, 10, 11, 15, 0, tzinfo=BOG),
+    )
+    pending = _post(
+        post_id=387636704,
+        text=caption,
+        when="2026-10-11T15:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+        uuid="truora-uuid",
+    )
+    published = _post(
+        post_id=387636704,
+        text=caption,
+        when="2026-10-11T15:00:00",
+        providers=[{"network": "instagram", "status": "PUBLISHED"}],
+        uuid="truora-uuid",
+    )
+    by_id = _sched_row(
+        page_id="3e699829-d217-80a7-9a14-e93f91cf2070",
+        title="Carrusel: The bridge Truora",
+        caption="otro texto que no es el caption de metricool para esta pieza",
+        publication=datetime(2026, 10, 11, 12, 0, tzinfo=BOG),
+        status="Programado",
+        metricool_id="387636704",
+    )
+    by_uuid = _sched_row(
+        page_id="3e699829-d217-80a7-9a14-e93f91cf2070",
+        title="Carrusel: The bridge Truora",
+        caption="otro texto que no es el caption de metricool para esta pieza",
+        publication=datetime(2026, 10, 11, 12, 0, tzinfo=BOG),
+        status="Publicado",
+        metricool_id=None,
+        metricool_uuid="truora-uuid",
+    )
+    for linked, post in ((by_id, pending), (by_uuid, published)):
+        stats, notion, metricool, media, slack = _run_schedule(
+            tmp_path, [approved], dry=False, posts=[post], linked=[linked]
+        )
+        assert stats["reconciled"] == 0
+        assert stats["scheduled"] == 0
+        notion.set_status.assert_not_called()
+        metricool.create_scheduled_post.assert_not_called()
+        media.assert_not_called()
+        assert slack.call_args.kwargs["reason"] == "slot_conflict"
 
 
 def test_claimed_post_is_not_reused_for_a_later_row(tmp_path):

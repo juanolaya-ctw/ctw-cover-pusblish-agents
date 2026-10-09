@@ -629,15 +629,16 @@ def distinctive_tokens(text: str) -> set[str]:
 
 
 def _slot_copy_similarity(left: str, right: str) -> float:
-    """Jaccard on content words. Ratio only when both sides are long enough to trust it."""
+    """Jaccard on content words.
+
+    Sequence ratio on long Spanish captions sits around 0.3 for unrelated posts
+    (OCDE vs Truora). That must not clear the slot floor.
+    """
     phrase_a = _content_phrase(left)
     phrase_b = _content_phrase(right)
     if not phrase_a or not phrase_b:
         return 0.0
-    jac = _jaccard(set(phrase_a.split()), set(phrase_b.split()))
-    if min(len(phrase_a), len(phrase_b)) < 40:
-        return jac
-    return max(jac, SequenceMatcher(None, phrase_a, phrase_b).ratio())
+    return _jaccard(set(phrase_a.split()), set(phrase_b.split()))
 
 
 def _best_field_similarity(caption: str, title: str | None, post: dict[str, Any]) -> float:
