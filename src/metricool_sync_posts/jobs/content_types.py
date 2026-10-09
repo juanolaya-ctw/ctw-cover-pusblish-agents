@@ -13,8 +13,9 @@ from metricool_sync_posts.timeutil import iso_metricool
 
 # ScheduledPostTikTokData in the Metricool swagger has photoCoverIndex and
 # autoAddMusic. That is a TikTok photo post (one image or a carousel). YouTube's
-# ScheduledPostYoutubeData only has video types (short/video), so images cannot
-# go to YouTube. A combined TikTok+YouTube post is one payload, so images skip.
+# ScheduledPostYoutubeData only has video types (short/video), so an image-only
+# post drops YouTube and keeps Instagram and TikTok. The row is skipped only
+# when no network remains.
 TIKTOK_PHOTO_POSTS = True
 
 logger = logging.getLogger(__name__)
@@ -58,22 +59,37 @@ def urls_are_only_images(urls: list[str] | None) -> bool:
     return all(_media_kind(url) == "image" for url in urls)
 
 
+def partition_image_networks(
+    networks: list[str],
+    media_urls: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    """Drop networks that cannot accept an image-only payload.
+
+    YouTube's swagger type is only short/video, so it is removed. Instagram
+    stays. TikTok stays as a photo post (photoCoverIndex) when the swagger
+    allows it. Order of the remaining networks is preserved.
+    """
+    ordered: list[str] = []
+    for net in networks:
+        key = str(net).strip().lower()
+        if key and key not in ordered:
+            ordered.append(key)
+    if not urls_are_only_images(media_urls):
+        return ordered, []
+    dropped = [net for net in ordered if net == "youtube" or (
+        net == "tiktok" and not TIKTOK_PHOTO_POSTS
+    )]
+    kept = [net for net in ordered if net not in dropped]
+    return kept, dropped
+
+
 def video_network_skip_reason(
     networks: list[str],
     media_urls: list[str] | None,
 ) -> str | None:
-    """Skip image-only posts that a target network cannot accept.
-
-    YouTube always needs a video. TikTok images are sent only as a photo post,
-    which the swagger allows via photoCoverIndex, and only when YouTube is not
-    on the same payload.
-    """
-    if not urls_are_only_images(media_urls):
-        return None
-    chosen = {str(net).strip().lower() for net in networks}
-    if "youtube" in chosen:
-        return "no_video_for_network"
-    if "tiktok" in chosen and not TIKTOK_PHOTO_POSTS:
+    """Whole-row skip only when image media leaves no network to post."""
+    kept, dropped = partition_image_networks(networks, media_urls)
+    if dropped and not kept:
         return "no_video_for_network"
     return None
 
@@ -84,8 +100,10 @@ def infer_instagram_type(title: str, content_type: str | None) -> str:
         return "STORY"
     if is_trials_reel(title):
         return "TRIAL_REEL"
+    # Metricool rejects instagramData.type CAROUSEL. Several media URLs on POST
+    # are how the API represents a carousel. Valid types: POST, REEL, TRIAL_REEL, STORY.
     if "carrusel" in ct or "carousel" in ct:
-        return "CAROUSEL"
+        return "POST"
     # 'Piezas estática' / estático / estatica — before the reel/video default.
     if any(token in ct for token in ("estatic", "static", "imagen", "foto")):
         return "POST"

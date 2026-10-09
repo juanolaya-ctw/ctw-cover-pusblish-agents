@@ -14,7 +14,7 @@ def test_spanish_static_is_post_not_reel():
     assert infer_instagram_type("Todo sigue un proceso", "Piezas estática") == "POST"
     assert infer_instagram_type("x", "Pieza estatica") == "POST"
     assert infer_instagram_type("x", "Estático") == "POST"
-    assert infer_instagram_type("x", "Carrusel") == "CAROUSEL"
+    assert infer_instagram_type("x", "Carrusel") == "POST"
     assert infer_instagram_type("x", "Reels - Tik Tok - Shorts") == "REEL"
 
 
@@ -29,8 +29,9 @@ def test_carousel_media_list():
         content_type="Carrusel",
         media_urls=["https://a.png", "https://b.png"],
     )
-    assert body["instagramData"]["type"] == "CAROUSEL"
+    assert body["instagramData"]["type"] == "POST"
     assert body["media"] == ["https://a.png", "https://b.png"]
+    assert "CAROUSEL" not in str(body)
 
 
 def test_youtube_title_is_the_hook_not_the_task_title():

@@ -13,6 +13,7 @@ from test_dryrun_fixes import BOG, _prop_names, _run_schedule, _sched_row, _sett
 
 from metricool_sync_posts.jobs.content_types import (
     build_schedule_body,
+    infer_instagram_type,
     video_network_skip_reason,
 )
 from metricool_sync_posts.logging_setup import (
@@ -20,6 +21,7 @@ from metricool_sync_posts.logging_setup import (
     redact_secrets,
     setup_logging,
 )
+from metricool_sync_posts.metricool.channels import plan_canals
 from metricool_sync_posts.metricool.client import MetricoolApiError, MetricoolClient
 from metricool_sync_posts.notion.properties import row_from_page
 
@@ -29,12 +31,18 @@ PNGS = [
 ]
 
 
-def test_images_for_youtube_and_tiktok_are_not_posted(tmp_path):
-    """Youtube Shorts + TikTok with PNGs was a Metricool 400. Do not POST."""
+def test_youtube_shorts_tiktok_plan_does_not_invent_instagram():
+    """Canal 'Youtube Shorts' + 'TikTok' is those two networks. Not Instagram."""
+    plan = plan_canals(["Youtube Shorts", "TikTok"])
+    assert plan.networks == ("youtube", "tiktok")
+    assert plan.youtube_short is True
+    assert "instagram" not in plan.networks
+
+
+def test_youtube_only_images_skip_with_no_video_for_network(tmp_path):
     row = _sched_row(
-        page_id="3ed99829-d217-8008-b68f-e94676e34922",
-        channel="Youtube Shorts, TikTok",
-        channels=["Youtube Shorts", "TikTok"],
+        channel="Youtube Shorts",
+        channels=["Youtube Shorts"],
         content_type="Piezas estática",
         cover_text="Hook publico",
         final_file_url="https://drive.google.com/drive/folders/images",
@@ -49,6 +57,82 @@ def test_images_for_youtube_and_tiktok_are_not_posted(tmp_path):
     metricool.create_scheduled_post.assert_not_called()
     notion.set_status.assert_not_called()
     assert slack.call_args.kwargs["reason"] == "no_video_for_network"
+
+
+def test_youtube_and_tiktok_images_drop_only_youtube(tmp_path, caplog):
+    """Image media cannot go to YouTube. TikTok photo stays; Instagram is not added."""
+    row = _sched_row(
+        page_id="3ed99829-d217-8008-b68f-e94676e34922",
+        channel="Youtube Shorts, TikTok",
+        channels=["Youtube Shorts", "TikTok"],
+        content_type="Piezas estática",
+        cover_text="Hook publico",
+        final_file_url="https://drive.google.com/drive/folders/images",
+    )
+    with caplog.at_level(logging.INFO, logger="metricool_sync_posts.jobs.schedule"):
+        stats, _notion, metricool, media, slack = _run_schedule(
+            tmp_path, [row], dry=False, media_urls=PNGS
+        )
+    assert stats["scheduled"] == 1
+    assert stats["skipped"] == 0
+    assert stats["errors"] == 0
+    media.assert_called_once()
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert body["providers"] == [{"network": "tiktok"}]
+    assert body["tiktokData"] == {"photoCoverIndex": 0}
+    assert "instagramData" not in body
+    assert "youtubeData" not in body
+    assert "CAROUSEL" not in str(body)
+    assert "dropped=['youtube']" in caplog.text
+    assert slack.call_args.kwargs["reason"] == "scheduled"
+
+
+def test_image_carousel_keeps_instagram_and_tiktok_drops_youtube(tmp_path, caplog):
+    row = _sched_row(
+        channel="Youtube Shorts, TikTok, Instagram",
+        channels=["Youtube Shorts", "TikTok", "Instagram"],
+        content_type="Carrusel",
+        cover_text="Hook publico",
+        final_file_url="https://drive.google.com/drive/folders/images",
+    )
+    with caplog.at_level(logging.INFO, logger="metricool_sync_posts.jobs.schedule"):
+        stats, _notion, metricool, _media, slack = _run_schedule(
+            tmp_path, [row], dry=False, media_urls=PNGS
+        )
+    assert stats["scheduled"] == 1
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert [item["network"] for item in body["providers"]] == ["tiktok", "instagram"]
+    assert body["instagramData"]["type"] == "POST"
+    assert body["media"] == PNGS
+    assert body["tiktokData"] == {"photoCoverIndex": 0}
+    assert "youtubeData" not in body
+    assert "CAROUSEL" not in str(body)
+    assert "dropped=['youtube']" in caplog.text
+    assert slack.call_args.kwargs["reason"] == "scheduled"
+
+
+def test_instagram_carousel_is_post_with_multiple_media(tmp_path):
+    """Live 400: instagramData.type CAROUSEL. Metricool wants POST plus several media."""
+    for content_type in ("Carrusel", "carousel", "CAROUSEL"):
+        assert infer_instagram_type("Havi Nguyen y Abby Care", content_type) == "POST"
+    row = _sched_row(
+        page_id="3f499829-d217-8113-82dd-e1e4863b155b",
+        channel="Instagram",
+        channels=["Instagram"],
+        content_type="Carrusel",
+        title="Havi Nguyen y Abby Care",
+    )
+    stats, _notion, metricool, _media, slack = _run_schedule(
+        tmp_path, [row], dry=False, media_urls=PNGS
+    )
+    assert stats["scheduled"] == 1
+    assert stats["errors"] == 0
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert body["providers"] == [{"network": "instagram"}]
+    assert body["instagramData"]["type"] == "POST"
+    assert body["media"] == PNGS
+    assert "CAROUSEL" not in str(body)
+    assert slack.call_args.kwargs["reason"] == "scheduled"
 
 
 def test_tiktok_photo_carousel_uses_photo_cover_index(tmp_path):
@@ -85,8 +169,9 @@ def test_video_still_schedules_on_youtube_and_tiktok(tmp_path):
 
 
 def test_skip_reason_matches_swagger_photo_support():
-    assert video_network_skip_reason(["youtube", "tiktok"], PNGS) == "no_video_for_network"
+    assert video_network_skip_reason(["youtube", "tiktok"], PNGS) is None
     assert video_network_skip_reason(["youtube"], PNGS) == "no_video_for_network"
+    assert video_network_skip_reason(["youtube", "instagram"], PNGS) is None
     assert video_network_skip_reason(["tiktok"], PNGS) is None
     assert video_network_skip_reason(["instagram"], PNGS) is None
     assert (

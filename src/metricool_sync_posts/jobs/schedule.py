@@ -20,6 +20,7 @@ from metricool_sync_posts.jobs.content_types import (
     build_schedule_body,
     is_miniatura_type,
     is_story_type,
+    partition_image_networks,
     video_network_skip_reason,
 )
 from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
@@ -789,13 +790,24 @@ def run_schedule(
                     dry_run=dry,
                 )
                 continue
-            video_skip = video_network_skip_reason(networks, media_urls)
-            if video_skip:
+            kept, dropped_for_images = partition_image_networks(networks, media_urls)
+            if dropped_for_images:
+                logger.info(
+                    "Drop networks for %s (image-only media): dropped=%s "
+                    "posting=%s canal=%r labels=%s",
+                    row.page_id,
+                    dropped_for_images,
+                    kept,
+                    row.channel,
+                    labels,
+                )
+            if not kept:
                 stats["skipped"] += 1
+                reason = video_network_skip_reason(networks, media_urls) or "no_video_for_network"
                 logger.warning(
                     "Skip %s: %s for %s (media extensions are images)",
                     row.page_id,
-                    video_skip,
+                    reason,
                     networks,
                 )
                 notify_slack(
@@ -803,15 +815,22 @@ def run_schedule(
                     channel=settings.slack_channel,
                     dedupe=dedupe,
                     notion_page_id=row.page_id,
-                    reason=video_skip,
+                    reason=reason,
                     message=(
                         f"Schedule skip: {row.url} targets {networks} but the media "
-                        "are only images; YouTube needs a video, and a TikTok photo "
-                        "cannot share that payload"
+                        "are only images and no network that accepts them remains"
                     ),
                     dry_run=dry,
                 )
                 continue
+            networks = kept
+            logger.info(
+                "Schedule %s canal=%r labels=%s networks=%s",
+                row.page_id,
+                row.channel,
+                labels,
+                networks,
+            )
 
             body = build_schedule_body(
                 caption=caption,
