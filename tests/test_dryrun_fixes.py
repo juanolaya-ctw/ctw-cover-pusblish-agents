@@ -24,6 +24,7 @@ from metricool_sync_posts.metricool.channels import (
 )
 from metricool_sync_posts.metricool.client import FORBIDDEN_BLOG_IDS, MetricoolClient
 from metricool_sync_posts.metricool.matching import (
+    caption_similarity,
     find_best_match,
     find_duplicate_candidates,
     find_existing_piece,
@@ -1026,43 +1027,223 @@ def test_slot_window_is_fifteen_minutes_and_same_network():
     assert find_duplicate_candidates([other_net], **kwargs) == []
 
 
-def test_fuzzy_caption_overlap_matches_without_the_same_prefix():
+_IA_CAPTION = (
+    "La IA nos va a reemplazar solo si dejamos de aprender a usarla en el trabajo diario. "
+    "Este carrusel recorre tres oficios que cambian cuando el modelo escribe el primer borrador "
+    "y el equipo tiene que decidir qué sigue siendo humano. "
+    "#ColombiaTech #InteligenciaArtificial https://colombia.tech/ia 🤖"
+)
+_CLAUDE_CAPTION = (
+    "Cinco atajos de Claude que el equipo usa para investigar, resumir y escribir más rápido. "
+    "No son trucos de internet: son el flujo real de una redacción que publica todas las semanas. "
+    "#ColombiaTech #Claude https://colombia.tech/claude ✨"
+)
+_HAVI_CAPTION = (
+    "Havi Nguyen construyó Abby Care para acompañar a familias que cuidan a alguien mayor. "
+    "La startup combina operación clínica y software, y por eso el equipo crece de otra forma. "
+    "#ColombiaTech #Startups https://colombia.tech/abby"
+)
+_SMARTFIT_TITLE = "Expandir la Suscripción fuera de las Paredes: Smartfit"
+_SMARTFIT_BODY = (
+    "Smartfit dejó de vender solo el acceso a las sedes y llevó la suscripción a otros momentos "
+    "del día. En esta conversación el equipo de Colombia Tech recorre precios, retención y la "
+    "expansión regional del modelo. No es un carrusel de tips: es cómo una marca de bienestar "
+    "sale de sus paredes y sigue cobrando cuando la persona ya no está en el gimnasio."
+)
+_SHARED_BOILERPLATE = (
+    "La suscripción también aparece cuando una startup cobra por el equipo y no por la sede. "
+    "Colombia Tech arma este carrusel para contar otra expansión, la de una herramienta de "
+    "inteligencia artificial que cambia el trabajo diario de varios oficios en la región. "
+    "#ColombiaTech https://colombia.tech/fondo 🚀"
+)
+
+
+def test_caption_similarity_is_high_for_edits_and_strict_when_dates_are_far():
     notion = (
-        "A Nico le tomó una década en el ecosistema llegar a sentarse con Simón Borrero"
+        "A Nico le tomó una década en el ecosistema llegar a sentarse con Simón Borrero "
+        "para hablar de cómo se construye una compañía desde cero"
     )
     edited = (
-        "década ecosistema sentarse Simón pero el resto del copy cambió por completo en metricool"
+        "A Nico le tomó una década en el ecosistema llegar a sentarse con Simón "
+        "pero después la charla giró hacia el fundraising y los inversionistas "
+        "#ColombiaTech https://colombia.tech/bridge 🎙️"
     )
-    post = _post(
+    assert 0.6 <= caption_similarity(notion, edited) < 0.85
+    close = _post(
         post_id=4,
         text=edited,
         when="2026-10-09T12:00:00",
         providers=[{"network": "instagram", "status": "PENDING"}],
     )
-    found = find_duplicate_candidates(
-        [post],
+    assert find_duplicate_candidates(
+        [close],
         caption=notion,
         title="titulo que no aparece en metricool",
         network="instagram",
         tz_name=TZ,
         notion_publication=datetime(2026, 10, 9, 18, 0, tzinfo=BOG),
-    )
-    assert found == [post]
+    ) == [close]
 
-    weak = _post(
-        post_id=5,
-        text="otro texto que solo menciona sentarse y nada mas del original aqui",
-        when="2026-10-09T12:00:00",
+    # Same edit a week apart is not close enough: far dates need a near-copy.
+    distant = _post(
+        post_id=6,
+        text=edited,
+        when="2026-10-04T12:00:00",
         providers=[{"network": "instagram", "status": "PENDING"}],
     )
     assert find_duplicate_candidates(
-        [weak],
-        caption="sentarse con el equipo de colombia tech esta semana en bogota",
-        title="otro titulo",
+        [distant],
+        caption=notion,
+        title="titulo que no aparece en metricool",
         network="instagram",
         tz_name=TZ,
         notion_publication=datetime(2026, 10, 9, 18, 0, tzinfo=BOG),
     ) == []
+    exact_far = _post(
+        post_id=7,
+        text=notion,
+        when="2026-10-04T12:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    assert find_duplicate_candidates(
+        [exact_far],
+        caption=notion,
+        title="otro titulo",
+        network="instagram",
+        tz_name=TZ,
+        notion_publication=datetime(2026, 10, 9, 18, 0, tzinfo=BOG),
+    ) == [exact_far]
+
+
+def test_shared_spanish_words_are_not_the_same_post():
+    """Different CTW captions share boilerplate. That must not look like a duplicate."""
+    assert caption_similarity(_IA_CAPTION, _CLAUDE_CAPTION) < 0.6
+    assert caption_similarity(_IA_CAPTION, _HAVI_CAPTION) < 0.6
+    assert caption_similarity(_IA_CAPTION, _SHARED_BOILERPLATE) < 0.6
+    assert caption_similarity(_CLAUDE_CAPTION, _SHARED_BOILERPLATE) < 0.6
+    assert caption_similarity(_SMARTFIT_BODY, _SHARED_BOILERPLATE) < 0.6
+    assert caption_similarity(_SMARTFIT_TITLE, _SMARTFIT_TITLE) == 1.0
+
+    decoy = _post(
+        post_id=50,
+        text=_SHARED_BOILERPLATE,
+        when="2026-10-10T12:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    assert find_duplicate_candidates(
+        [decoy],
+        caption=_IA_CAPTION,
+        title="Carrusel: La IA nos va a reemplazar",
+        network="instagram",
+        tz_name=TZ,
+        notion_publication=datetime(2026, 10, 10, 9, 0, tzinfo=BOG),
+    ) == []
+
+
+def test_new_pieces_schedule_while_real_duplicates_reconcile(tmp_path):
+    bridge = _sched_row(
+        page_id="3e599829-d217-8054-a250-ee6e9300fe25",
+        channel="Instagram",
+        title="The bridge: Sentarse con un fundador unicornio",
+        caption=(
+            "A Nico le tomó años construir el puente para sentarse con un fundador que ya "
+            "pasó por la escala. Esta conversación recorre la duda, el equipo y la decisión "
+            "de seguir. No es un recuento de métricas."
+        ),
+        publication=datetime(2026, 10, 9, 18, 0, tzinfo=BOG),
+        content_type="Reels",
+    )
+    smartfit = _sched_row(
+        page_id="3ea99829-d217-81c3-a7af-ddb880308a36",
+        channel="YouTube",
+        title=_SMARTFIT_TITLE,
+        caption=_SMARTFIT_BODY,
+        publication=datetime(2026, 10, 8, 18, 0, tzinfo=BOG),
+        content_type="Video Largo",
+    )
+    ia = _sched_row(
+        page_id="3ed99829-d217-8008-b68f-e94676e34922",
+        channel="Instagram",
+        title="Carrusel: La IA nos va a reemplazar",
+        caption=_IA_CAPTION,
+        publication=datetime(2026, 10, 10, 9, 0, tzinfo=BOG),
+        content_type="Carrusel",
+    )
+    trials = _sched_row(
+        page_id="3ea99829-d217-80de-913f-e21ea1dfde5a",
+        channel="Instagram",
+        title="Trials: 5 secret Claude cheat code",
+        caption=_CLAUDE_CAPTION,
+        publication=datetime(2026, 10, 10, 15, 30, tzinfo=BOG),
+        content_type="Reels",
+    )
+    havi = _sched_row(
+        page_id="3f499829-d217-8113-82dd-e1e4863b155b",
+        channel="Instagram",
+        title="Havi Nguyen y Abby Care",
+        caption=_HAVI_CAPTION,
+        publication=datetime(2026, 10, 11, 9, 0, tzinfo=BOG),
+        content_type="Carrusel",
+    )
+    posts = [
+        _post(
+            post_id=88001,
+            text="A Nico le tomó una década en el ecosistema llegar a sentarse con Simón",
+            when="2026-10-09T18:00:00",
+            providers=[{"network": "instagram", "status": "PENDING"}],
+        ),
+        _post(
+            post_id=391622734,
+            text=(
+                "Smartfit llevó la suscripción fuera del gimnasio. Colombia Tech habla con "
+                "el equipo sobre expansión, precios y retención."
+            ),
+            when="2026-10-08T18:00:00",
+            providers=[{"network": "youtube", "status": "PUBLISHED"}],
+            youtube_title=_SMARTFIT_TITLE,
+        ),
+        _post(
+            post_id=111,
+            text=_SHARED_BOILERPLATE,
+            when="2026-10-10T11:00:00",
+            providers=[{"network": "instagram", "status": "PENDING"}],
+        ),
+        _post(
+            post_id=112,
+            text=(
+                "Bogotá recibe el GovTech Summit y este carrusel explica por qué la ciudad "
+                "se volvió casa de compras públicas digitales. El equipo recorre la agenda, "
+                "los fondos y las startups que llegan esa semana. #ColombiaTech #GovTech"
+            ),
+            when="2026-10-07T09:00:00",
+            providers=[{"network": "instagram", "status": "PUBLISHED"}],
+        ),
+        _post(
+            post_id=113,
+            text=(
+                "Inteligencia artificial, startups y el equipo de Colombia Tech en otro video "
+                "sobre cómo construir una compañía con suscripción y expansión regional."
+            ),
+            when="2026-10-06T18:00:00",
+            providers=[{"network": "youtube", "status": "PUBLISHED"}],
+            youtube_title="Otra marca también habla de suscripción y de expansión",
+        ),
+    ]
+    stats, notion, metricool, _media, slack = _run_schedule(
+        tmp_path, [smartfit, bridge, ia, trials, havi], dry=False, posts=posts
+    )
+    assert stats["scheduled"] == 3
+    assert stats["reconciled"] == 2
+    assert stats["skipped"] == 0
+    assert metricool.create_scheduled_post.call_count == 3
+    reasons = {call.kwargs["reason"] for call in slack.call_args_list}
+    assert "ambiguous_duplicate" not in reasons
+    status = {call.args[0]: call.args[1] for call in notion.set_status.call_args_list}
+    assert status[bridge.page_id] == "Programado"
+    assert status[smartfit.page_id] == "Publicado"
+    assert status[ia.page_id] == "Programado"
+    assert status[trials.page_id] == "Programado"
+    assert status[havi.page_id] == "Programado"
 
 
 def test_ambiguous_duplicates_are_skipped_not_created(tmp_path):
