@@ -27,7 +27,6 @@ jobs:
       DRY_RUN: 'true'
       REQUIRE_COVER_FOR_SCHEDULE: 'false'
       SCHEDULE_EXCLUDE_CHANNELS: Newsletter,LinkedIn Majo,IG Nico
-      GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: ${{ runner.temp }}/gdrive-sa.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,6 +37,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           python -m pip install -e '.[dev]'
+      - name: Set temporary Drive credential path
+        run: echo "GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE=$RUNNER_TEMP/gdrive-sa.json" >> "$GITHUB_ENV"
       - name: Optional Drive service account
         env:
           GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
