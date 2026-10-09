@@ -76,7 +76,7 @@ class NotionRepository:
         week_start,
         week_end,
         *,
-        limit: int,
+        limit: int | None,
     ) -> list[NotionPostRow]:
         pub = week_publication_filter(
             self._settings.notion_prop_publication, week_start, week_end
@@ -97,7 +97,7 @@ class NotionRepository:
         rows.sort(
             key=lambda r: (publication_sort_key(r.publication, week_start), r.page_id)
         )
-        return rows[:limit]
+        return rows if limit is None else rows[:limit]
 
     def fetch_scheduled_in_window(
         self,
