@@ -35,4 +35,6 @@ def test_instagram_cover_url_on_reel():
         media_urls=["https://v.mp4"],
         cover_url="https://cover.jpg",
     )
-    assert body["instagramData"]["coverUrl"] == "https://cover.jpg"
+    assert body["videoThumbnailUrl"] == "https://cover.jpg"
+    assert "coverUrl" not in body["instagramData"]
+    assert body["media"] == ["https://v.mp4"]

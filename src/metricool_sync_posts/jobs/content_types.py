@@ -45,7 +45,9 @@ def build_schedule_body(
     cover_url: str | None = None,
     youtube_existing_video: bool = False,
 ) -> dict[str, Any]:
-    network = normalize_channel(channel, title=title) or "instagram"
+    network = normalize_channel(channel, title=title)
+    if not network:
+        raise ValueError(f"Unknown or ambiguous channel: {channel!r}")
     body: dict[str, Any] = {
         "publicationDate": {
             "dateTime": iso_metricool(publication),
@@ -79,8 +81,9 @@ def build_schedule_body(
     elif network == "instagram":
         ig_type = infer_instagram_type(title, content_type)
         ig_data: dict[str, Any] = {"type": ig_type, "autoPublish": True}
-        if cover_url and ig_type in ("REEL", "TRIAL_REEL", "POST"):
-            ig_data["coverUrl"] = cover_url
+        if cover_url and ig_type in ("REEL", "TRIAL_REEL"):
+            # Official ScheduledPost schema: thumbnail is top-level, never extra media.
+            body["videoThumbnailUrl"] = cover_url
         body["instagramData"] = ig_data
     return body
 
