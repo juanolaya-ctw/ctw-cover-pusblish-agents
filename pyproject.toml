@@ -19,10 +19,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ffmpeg = [
+  "imageio-ffmpeg>=0.5.1",
+]
 dev = [
   "pytest>=8.2.0",
   "ruff>=0.4.0",
 ]
+
+[tool.setuptools.package-data]
+metricool_sync_posts = ["BUILD.txt", "py.typed"]
 
 [project.scripts]
 notion-aprobado-metricool = "metricool_sync_posts.cli.schedule:main"

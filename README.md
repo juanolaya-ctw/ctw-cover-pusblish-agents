@@ -100,8 +100,10 @@ Ver [.env.example](.env.example). Principales:
 - `METRICOOL_USER_TOKEN`, `METRICOOL_USER_ID`, `METRICOOL_BLOG_ID`
 - `ENABLE_SCHEDULE=false` (usa `--enable` para un run; o `true` en cron)
 - `SCHEDULE_EXCLUDE_CHANNELS=Newsletter` (mantener; Canales/LinkedIn Majo a mano)
-- `GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE` solo si **Archivo Final** es carpeta Drive (compartir carpetas con esa cuenta). Enlaces de archivo Drive o Dropbox share **no** lo necesitan.
-- `TRANSFER_SH_ENABLED` / `S3_*` para URLs públicas temporales tras remux ffmpeg
+- `GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE` para carpetas Drive **y** descarga autenticada de archivos (API `alt=media`; no usar `uc?export=download` HTML). Compartir carpetas/archivos con el email de la SA.
+- URL pública Metricool: preferir `S3_*` si existe; `TRANSFER_SH` es **opcional** (a menudo timeout). Sin S3 el job usa litterbox → uguu.se automáticamente. Dropbox `dl=1` / YouTube pasan directo a normalize sin re-host.
+- ffmpeg: sistema `ffmpeg`/`FFMPEG_BIN`, o `pip install "metricool-sync-posts[ffmpeg]"` (imageio-ffmpeg), o Windows `winget install --id Gyan.FFmpeg -e`. Sin ffmpeg, `.mov` se intenta sin remux (log de aviso).
+- Al arrancar, el schedule loguea `metricool_sync_posts build: <sha|version>` — si no aparece, el zip no se aplicó.
 - Portadas IG / Dropbox API = **Fase 2 opcional**: dejar `CTW_COVER_AGENT_PATH` vacío; `REQUIRE_COVER_FOR_SCHEDULE=false`. `DROPBOX_ACCESS_TOKEN` solo si activas cover-agent (token ~4h). Media de schedule **no** usa OAuth Dropbox.
 - `SLACK_WEBHOOK_URL` (opcional, dedupe 6 h en `.data/slack-dedupe.json`)
 

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from datetime import date
 
+from metricool_sync_posts.build_info import build_label
 from metricool_sync_posts.cli._args import add_dry_run, add_enable_schedule
 from metricool_sync_posts.config import load_settings
 from metricool_sync_posts.jobs.schedule import run_schedule
 from metricool_sync_posts.logging_setup import setup_logging
+
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
@@ -32,6 +36,7 @@ def main() -> None:
         settings.enable_schedule = True
         # Covers stay optional unless REQUIRE_COVER_FOR_SCHEDULE=true (Phase 2)
     setup_logging(settings.log_level)
+    logger.info("metricool_sync_posts build: %s", build_label())
     exclude = settings.schedule_exclude_channels_set() | frozenset(args.exclude_channel)
     stats = run_schedule(
         settings=settings,

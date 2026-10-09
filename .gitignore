@@ -1,4 +1,10 @@
 .env
+.env.*
+!.env.example
+secrets/
+*.pem
+*sa*.json
+gdrive*.json
 .venv/
 venv/
 __pycache__/

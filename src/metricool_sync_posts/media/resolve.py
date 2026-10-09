@@ -5,10 +5,12 @@ from __future__ import annotations
 import logging
 
 from metricool_sync_posts.config import Settings
-from metricool_sync_posts.media.drive_folder import resolve_folder_to_download_urls
+from metricool_sync_posts.media.drive_folder import (
+    drive_file_ref_url,
+    resolve_folder_to_download_urls,
+)
 from metricool_sync_posts.media.final_file import FinalFileKind, classify_final_file
 from metricool_sync_posts.media.pipeline import prepare_media_for_metricool
-from metricool_sync_posts.media.urls import google_drive_direct_url
 from metricool_sync_posts.metricool.client import MetricoolClient
 
 logger = logging.getLogger(__name__)
@@ -45,7 +47,9 @@ def resolve_source_urls(
             stories=_is_stories(content_type),
         )
     if ref.kind == FinalFileKind.GOOGLE_DRIVE_FILE:
-        return [google_drive_direct_url(ref.raw_url)]
+        # Keep a /file/d/{id}/… URL so download uses SA API (alt=media), not uc?export.
+        assert ref.drive_file_id
+        return [drive_file_ref_url(ref.drive_file_id)]
     return [ref.raw_url]
 
 
@@ -58,13 +62,27 @@ def prepare_media_urls_for_metricool(
     dry_run: bool,
 ) -> list[str]:
     """Download/normalize each resolved URL; return Metricool-ready media URLs."""
+    ref = classify_final_file(raw_archivo_final)
+    if ref.kind == FinalFileKind.EMPTY:
+        return []
+    if ref.kind == FinalFileKind.YOUTUBE:
+        return [ref.raw_url]
+
+    # Dry-run: avoid Drive SA listing/download; still exercise exclude + caption path.
+    if dry_run and ref.kind in (
+        FinalFileKind.GOOGLE_DRIVE_FOLDER,
+        FinalFileKind.GOOGLE_DRIVE_FILE,
+    ):
+        logger.info(
+            "[dry-run] Would resolve/download Drive %s via service account API: %s",
+            ref.kind.value,
+            (raw_archivo_final or "")[:120],
+        )
+        return [ref.raw_url or "https://drive.google.com/dry-run"]
+
     sources = resolve_source_urls(settings, raw_archivo_final, content_type=content_type)
     if not sources:
         return []
-
-    ref = classify_final_file(raw_archivo_final)
-    if ref.kind == FinalFileKind.YOUTUBE:
-        return sources
 
     out: list[str] = []
     for idx, src in enumerate(sources):

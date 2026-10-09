@@ -1,6 +1,7 @@
 from metricool_sync_posts.media.urls import (
     dropbox_direct_url,
     dropbox_download_candidates,
+    extract_drive_file_id,
     google_drive_direct_url,
 )
 
@@ -31,3 +32,4 @@ def test_dropbox_candidates_include_usercontent_host():
 def test_drive_direct():
     url = "https://drive.google.com/file/d/FILEID/view"
     assert "export=download" in google_drive_direct_url(url)
+    assert extract_drive_file_id(url) == "FILEID"

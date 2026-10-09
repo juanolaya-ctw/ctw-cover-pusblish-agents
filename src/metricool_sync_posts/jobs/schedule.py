@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
+from metricool_sync_posts.build_info import build_label
 from metricool_sync_posts.config import Settings
 from metricool_sync_posts.cover.attach import resolve_cover_url_for_metricool
 from metricool_sync_posts.cover.bridge import prepare_cover_for_publish_task
@@ -30,6 +32,22 @@ def _publication_on_date(row, tz_name: str, target: date) -> bool:
     return pub.astimezone(ZoneInfo(tz_name)).date() == target
 
 
+def _norm_channel(name: str | None) -> str:
+    """Normalize Canal labels for exclude matching (case/space insensitive)."""
+    if not name:
+        return ""
+    # Collapse unicode spaces / NBSP and trim
+    collapsed = re.sub(r"[\s\u00a0]+", " ", name).strip()
+    return collapsed.casefold()
+
+
+def _channel_is_excluded(channel: str | None, exclude: frozenset[str]) -> bool:
+    if not exclude:
+        return False
+    norms = {_norm_channel(x) for x in exclude if _norm_channel(x)}
+    return _norm_channel(channel) in norms
+
+
 def run_schedule(
     *,
     settings: Settings,
@@ -43,6 +61,8 @@ def run_schedule(
     if not settings.enable_schedule:
         logger.warning("Schedule job disabled (ENABLE_SCHEDULE=false). Exiting.")
         return stats
+
+    logger.info("metricool_sync_posts build: %s", build_label())
 
     notion = NotionRepository(settings)
     metricool = MetricoolClient(settings)
@@ -61,11 +81,25 @@ def run_schedule(
     if only_publication_date is not None:
         tz = settings.timezone
         rows = [r for r in rows if _publication_on_date(r, tz, only_publication_date)]
-    if exclude_channels:
-        rows = [
-            r for r in rows if (r.channel or "").strip() not in exclude_channels
-        ]
-        logger.info("Excluded channels filter: %s", sorted(exclude_channels))
+    exclude = exclude_channels or frozenset()
+    if exclude:
+        before = len(rows)
+        kept = []
+        dropped: list[str] = []
+        for r in rows:
+            if _channel_is_excluded(r.channel, exclude):
+                dropped.append(f"{(r.channel or '').strip() or '?'}:{r.page_id[:8]}")
+                continue
+            kept.append(r)
+        rows = kept
+        logger.info(
+            "Excluded channels filter: %s — dropped %s/%s before media (%s); remaining %s",
+            sorted(exclude),
+            len(dropped),
+            before,
+            dropped,
+            len(rows),
+        )
     rows.sort(
         key=lambda r: (
             publication_sort_key(r.publication, week_start),
@@ -74,10 +108,11 @@ def run_schedule(
     )
     stats["queried"] = len(rows)
     logger.info(
-        "Found %s approved rows for week %s — %s",
+        "Found %s approved rows for week %s — %s (channels: %s)",
         len(rows),
         week_start.date(),
         week_end.date(),
+        [(r.channel, r.page_id[:8]) for r in rows],
     )
 
     for row in rows:

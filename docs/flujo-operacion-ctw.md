@@ -22,9 +22,10 @@
 
 ## Archivo Final
 
-- **Carpeta Drive:** requiere `GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE` + carpetas compartidas con esa cuenta.
-- **Archivo Drive:** enlace `/file/d/…` → descarga directa (sin service account).
+- **Carpeta Drive:** requiere `GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE` + carpetas compartidas con esa cuenta. Listado + descarga vía API (`alt=media`).
+- **Archivo Drive:** `/file/d/…` — preferir la misma SA (API). Sin SA, fallback `uc?export=download` (suele devolver HTML si no es público).
 - **Dropbox share/public:** `dl=1` / `raw=1` (sin `DROPBOX_ACCESS_TOKEN` ni API).
+- **URL pública Metricool:** Dropbox `dl=1` / YouTube → pass-through. Drive → SA download luego `S3_*` o litterbox/uguu (transfer.sh solo si `TRANSFER_SH=true`, no es obligatorio).
 - **YouTube URL:** programación sobre video existente (equipo debe pasarlo a público antes de la hora).
 - **Carrusel:** todos los images de la carpeta (máx. 10).
 

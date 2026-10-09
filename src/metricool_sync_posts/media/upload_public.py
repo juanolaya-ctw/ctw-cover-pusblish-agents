@@ -11,33 +11,123 @@ from metricool_sync_posts.config import Settings
 
 logger = logging.getLogger(__name__)
 
+# Hosts verified reachable from the CTW cloud agent (2026-10-08):
+#   litterbox.catbox.moe — OK (direct https://litter.catbox.moe/… bytes)
+#   uguu.se — OK (direct https://h.uguu.se/… bytes)
+# transfer.sh / 0x0.st timed out from agent + Juan's Windows; optional only.
+# tmpfiles.org uploaded but returned HTML landing pages (not usable for Metricool).
+
+_FREE_HOST_NAMES = ("litterbox", "uguu.se")
+
 
 def upload_public_url(settings: Settings, path: Path) -> str:
+    """
+    Return a publicly fetchable HTTP(S) URL for ``path``.
+
+    Order:
+      1. S3 when S3_* is configured
+      2. transfer.sh only when TRANSFER_SH / TRANSFER_SH_ENABLED (optional; may timeout)
+      3. litterbox.catbox.moe (24h)
+      4. uguu.se
+    """
+    errors: list[str] = []
+
     if settings.s3_endpoint and settings.s3_bucket and settings.s3_access_key:
-        return _upload_s3(settings, path)
+        try:
+            return _upload_s3(settings, path)
+        except Exception as exc:
+            msg = f"s3: {exc}"
+            logger.warning("Public upload failed (%s)", msg)
+            errors.append(msg)
+
     if settings.transfer_sh_enabled:
-        return _upload_transfer_sh(settings, path)
+        try:
+            return _upload_transfer_sh(settings, path)
+        except Exception as exc:
+            msg = f"transfer.sh: {exc}"
+            logger.warning("Public upload failed (%s); trying free hosts", msg)
+            errors.append(msg)
+
+    uploaders = {
+        "litterbox": _upload_litterbox,
+        "uguu.se": _upload_uguu,
+    }
+    for name in _FREE_HOST_NAMES:
+        try:
+            url = uploaders[name](path)
+            logger.info("Uploaded via %s: %s", name, url)
+            return url
+        except Exception as exc:
+            msg = f"{name}: {exc}"
+            logger.warning("Public upload failed (%s)", msg)
+            errors.append(msg)
+
     raise RuntimeError(
-        "Media needs a public URL for Metricool; TRANSFER_SH off and S3 not configured. "
-        "Enable TRANSFER_SH or set S3_* env vars."
+        "All public upload hosts failed (S3 / transfer.sh / litterbox / uguu). "
+        f"Last errors: {errors}. Set S3_* for a durable host, or check network egress."
     )
 
 
 def _upload_transfer_sh(settings: Settings, path: Path) -> str:
     url = settings.transfer_sh_url.rstrip("/") + "/" + path.name
-    data = path.read_bytes()
     last_exc: Exception | None = None
-    for attempt in range(3):
+    # Short connect timeout: Juan's PC gets WinError 10060; fail fast to fallbacks.
+    timeout = httpx.Timeout(connect=12.0, read=120.0, write=120.0, pool=12.0)
+    for attempt in range(2):
         try:
-            resp = httpx.put(url, content=data, timeout=300.0)
+            with path.open("rb") as f:
+                resp = httpx.put(
+                    url,
+                    content=f,
+                    headers={"Content-Length": str(path.stat().st_size)},
+                    timeout=timeout,
+                )
             resp.raise_for_status()
             link = resp.text.strip()
+            if not link.startswith("http"):
+                raise RuntimeError(f"transfer.sh returned non-URL body: {link[:120]!r}")
             logger.info("Uploaded to transfer.sh: %s", link)
             return link
         except Exception as exc:
             last_exc = exc
             logger.warning("transfer.sh attempt %s failed: %s", attempt + 1, exc)
     raise RuntimeError(f"transfer.sh upload failed after retries: {last_exc}") from last_exc
+
+
+def _upload_litterbox(path: Path) -> str:
+    """24h anonymous upload; returns direct https://litter.catbox.moe/… URL."""
+    timeout = httpx.Timeout(connect=20.0, read=300.0, write=300.0, pool=20.0)
+    with path.open("rb") as f:
+        resp = httpx.post(
+            "https://litterbox.catbox.moe/resources/internals/api.php",
+            data={"reqtype": "fileupload", "time": "24h"},
+            files={"fileToUpload": (path.name, f, "application/octet-stream")},
+            timeout=timeout,
+        )
+    resp.raise_for_status()
+    link = resp.text.strip()
+    if not link.startswith("http"):
+        raise RuntimeError(f"litterbox returned non-URL body: {link[:120]!r}")
+    return link
+
+
+def _upload_uguu(path: Path) -> str:
+    """Anonymous upload; returns direct https://h.uguu.se/… URL."""
+    timeout = httpx.Timeout(connect=20.0, read=300.0, write=300.0, pool=20.0)
+    with path.open("rb") as f:
+        resp = httpx.post(
+            "https://uguu.se/upload.php",
+            files={"files[]": (path.name, f, "application/octet-stream")},
+            timeout=timeout,
+        )
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("success"):
+        raise RuntimeError(f"uguu.se upload unsuccessful: {resp.text[:160]!r}")
+    files = data.get("files") or []
+    if not files or not files[0].get("url"):
+        raise RuntimeError(f"uguu.se missing file url: {resp.text[:160]!r}")
+    return str(files[0]["url"])
 
 
 def _upload_s3(settings: Settings, path: Path) -> str:

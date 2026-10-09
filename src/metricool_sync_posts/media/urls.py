@@ -74,14 +74,33 @@ def dropbox_download_candidates(url: str) -> list[str]:
     return candidates
 
 
+def extract_drive_file_id(url: str) -> str | None:
+    """Extract a Drive file id from /file/d/… or uc?id= / open?id= URLs."""
+    if "/drive/folders/" in url or "/folders/" in url:
+        return None
+    if "/file/d/" in url:
+        return url.split("/file/d/")[1].split("/")[0] or None
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query)
+    for key in ("id",):
+        vals = qs.get(key)
+        if vals and vals[0]:
+            return vals[0]
+    return None
+
+
 def google_drive_direct_url(url: str) -> str:
-    """Best-effort direct link for Drive file URLs."""
+    """
+    Public uc?export=download link (fallback only when no service account).
+
+    Prefer authenticated Drive API download via GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE.
+    """
     if "/drive/folders/" in url or "/folders/" in url:
         raise ValueError(
             "Archivo Final is a Google Drive folder link; use a direct file URL (/file/d/…) "
             "or set GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE for folder resolution."
         )
-    if "/file/d/" in url:
-        file_id = url.split("/file/d/")[1].split("/")[0]
+    file_id = extract_drive_file_id(url)
+    if file_id:
         return f"https://drive.google.com/uc?export=download&id={file_id}"
     return url

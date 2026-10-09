@@ -5,8 +5,14 @@ from pathlib import Path
 
 import httpx
 
+from metricool_sync_posts.config import Settings
+from metricool_sync_posts.media.drive_folder import (
+    download_drive_file,
+    has_drive_service_account,
+)
 from metricool_sync_posts.media.urls import (
     dropbox_download_candidates,
+    extract_drive_file_id,
     google_drive_direct_url,
     is_dropbox_url,
     is_google_drive_url,
@@ -31,14 +37,30 @@ def _looks_like_html(content_type: str | None, first_chunk: bytes) -> bool:
     return head.startswith(b"<!doctype html") or head.startswith(b"<html")
 
 
-def download_to_path(url: str, dest: Path) -> Path:
+def download_to_path(url: str, dest: Path, settings: Settings | None = None) -> Path:
     """
     Download media to dest.
+
+    Google Drive: when GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE is set, use Drive API
+    alt=media (authenticated). Otherwise fall back to public uc?export=download
+    (often returns HTML for private / large files).
 
     Dropbox public/share links: try dl=1 / raw=1 / dl.dropboxusercontent.com
     without any DROPBOX_ACCESS_TOKEN.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
+
+    if is_google_drive_url(url):
+        file_id = extract_drive_file_id(url)
+        if file_id and settings is not None and has_drive_service_account(settings):
+            return download_drive_file(settings, file_id, dest)
+        if file_id and (settings is None or not has_drive_service_account(settings)):
+            logger.warning(
+                "Drive file %s: no GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE; "
+                "trying public uc?export=download (may return HTML)",
+                file_id,
+            )
+
     if is_dropbox_url(url):
         candidates = dropbox_download_candidates(url)
     elif is_google_drive_url(url):

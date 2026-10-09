@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field, computed_field
+from pydantic import AliasChoices, Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +13,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     # Notion
@@ -71,7 +72,11 @@ class Settings(BaseSettings):
         default=None, alias="GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE"
     )
 
-    transfer_sh_enabled: bool = Field(default=False, alias="TRANSFER_SH_ENABLED")
+    # TRANSFER_SH=true is accepted as a short alias of TRANSFER_SH_ENABLED
+    transfer_sh_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("TRANSFER_SH_ENABLED", "TRANSFER_SH"),
+    )
     transfer_sh_url: str = Field(default="https://transfer.sh", alias="TRANSFER_SH_URL")
     s3_endpoint: str | None = Field(default=None, alias="S3_ENDPOINT")
     s3_bucket: str | None = Field(default=None, alias="S3_BUCKET")
