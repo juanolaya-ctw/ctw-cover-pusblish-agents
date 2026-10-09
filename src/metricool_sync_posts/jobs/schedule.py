@@ -16,7 +16,11 @@ from metricool_sync_posts.jobs.common import (
     caption_has_placeholder,
     publication_dt,
 )
-from metricool_sync_posts.jobs.content_types import build_schedule_body, is_miniatura_type
+from metricool_sync_posts.jobs.content_types import (
+    build_schedule_body,
+    is_miniatura_type,
+    is_story_type,
+)
 from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
 from metricool_sync_posts.media.final_file import FinalFileKind, classify_final_file
 from metricool_sync_posts.media.resolve import prepare_media_urls_for_metricool
@@ -26,7 +30,9 @@ from metricool_sync_posts.metricool.matching import (
     find_duplicate_candidates,
     find_slot_occupants,
     format_match_evidence,
+    post_copy_is_thin,
     post_state,
+    slot_occupant_blocks,
 )
 from metricool_sync_posts.metricool.profiles import load_connected_networks
 from metricool_sync_posts.notion.client import NotionRepository
@@ -501,9 +507,31 @@ def run_schedule(
                     tz_name=settings.timezone,
                     notion_publication=pub,
                 )
-                if occupants:
+                story = is_story_type(row.content_type)
+                notion_media = [row.final_file_url] if row.final_file_url else None
+                blocking = [
+                    occupant
+                    for occupant in occupants
+                    if slot_occupant_blocks(
+                        occupant, story=story, media_urls=notion_media
+                    )
+                ]
+                for occupant in occupants:
+                    if occupant not in blocking:
+                        logger.info(
+                            "Slot occupant %s does not block %s: media clearly differs",
+                            _post_key(occupant),
+                            row.page_id,
+                        )
+                if blocking:
                     stats["skipped"] += 1
-                    for occupant in occupants:
+                    for occupant in blocking:
+                        if post_copy_is_thin(occupant):
+                            logger.info(
+                                "Slot occupant %s has empty or very short text; "
+                                "treating as slot_conflict",
+                                _post_key(occupant),
+                            )
                         logger.info(
                             "Not the same piece Notion %s Metricool %s %s",
                             row.page_id,
@@ -515,17 +543,22 @@ def run_schedule(
                                 tz_name=settings.timezone,
                                 notion_publication=pub,
                                 networks=networks,
-                                media_urls=(
-                                    [row.final_file_url] if row.final_file_url else None
-                                ),
+                                media_urls=notion_media,
                             ),
                         )
-                    ids = [_post_key(post) for post in occupants]
+                    ids = [_post_key(post) for post in blocking]
                     logger.warning(
                         "Skip %s: slot_conflict, Metricool posts %s",
                         row.page_id,
                         ids,
                     )
+                    empty_slot = any(post_copy_is_thin(post) for post in blocking)
+                    if empty_slot:
+                        why = "whose text is empty or too short to compare"
+                    elif story:
+                        why = "and this row is a Historia"
+                    else:
+                        why = "which is a different piece"
                     notify_slack(
                         webhook_url=settings.slack_webhook_url,
                         channel=settings.slack_channel,
@@ -534,7 +567,7 @@ def run_schedule(
                         reason="slot_conflict",
                         message=(
                             f"Schedule skip: {row.url} shares a publication slot with "
-                            f"Metricool {ids}, which is a different piece; not created"
+                            f"Metricool {ids}, {why}; not created"
                         ),
                         dry_run=dry,
                     )

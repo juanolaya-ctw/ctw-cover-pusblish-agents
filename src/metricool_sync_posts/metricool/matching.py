@@ -611,6 +611,89 @@ def _media_values(post: dict[str, Any]) -> list[str]:
     return []
 
 
+_THIN_NORMALIZED_LEN = 25
+_THIN_TOKEN_COUNT = 3
+_OPAQUE_MEDIA_MARKERS = (
+    "drive.google.com",
+    "docs.google.com",
+    "docs.googleusercontent.com",
+)
+
+
+def post_copy_is_thin(post: dict[str, Any]) -> bool:
+    """True when the Metricool post has no caption worth comparing.
+
+    Instagram stories are often stored with empty text. A few characters
+    ("Hola", ".") cannot identify the piece either.
+    """
+    parts = [field.strip() for field in _post_text_fields(post) if field and field.strip()]
+    if not parts:
+        return True
+    combined = " ".join(parts)
+    normalized = normalize_caption(combined)
+    if not normalized:
+        return True
+    return (
+        len(normalized) < _THIN_NORMALIZED_LEN
+        and len(content_tokens(combined)) < _THIN_TOKEN_COUNT
+    )
+
+
+def _is_opaque_media_url(url: str) -> bool:
+    """Drive folders and other containers are not comparable file URLs.
+
+    Metricool rehosts the image, so a folder link and a static.metricool.com
+    jpeg are not evidence that the files differ.
+    """
+    lowered = url.strip().lower()
+    if not lowered.startswith(("http://", "https://")):
+        return True
+    if any(marker in lowered for marker in _OPAQUE_MEDIA_MARKERS):
+        return True
+    if "/folders/" in lowered:
+        return True
+    if "dropbox.com" in lowered and (
+        "/sh/" in lowered or "/scl/fo/" in lowered or "folder" in lowered
+    ):
+        return True
+    return False
+
+
+def media_clearly_differs(notion_urls: list[str] | None, post: dict[str, Any]) -> bool:
+    """True only when both sides are direct URLs and neither contains the other."""
+    left = [url.strip() for url in (notion_urls or []) if url and url.strip()]
+    right = [url.strip() for url in _media_values(post) if url and url.strip()]
+    if not left or not right:
+        return False
+    if any(_is_opaque_media_url(url) for url in (*left, *right)):
+        return False
+    if media_overlaps(left, post):
+        return False
+    haystack = " ".join(left).lower()
+    for url in right:
+        token = url.lower()
+        if len(token) >= 12 and token in haystack:
+            return False
+    return True
+
+
+def slot_occupant_blocks(
+    post: dict[str, Any],
+    *,
+    story: bool,
+    media_urls: list[str] | None,
+) -> bool:
+    """Whether a same-slot post should stop a new create.
+
+    Empty or very short copy, and a Historia row, block unless both sides have
+    a direct media URL that is clearly a different file. Any other occupant
+    still blocks: a taken slot is not free just because the captions differ.
+    """
+    if post_copy_is_thin(post) or story:
+        return not media_clearly_differs(media_urls, post)
+    return True
+
+
 def media_overlaps(notion_urls: list[str] | None, post: dict[str, Any]) -> bool:
     if not notion_urls:
         return False

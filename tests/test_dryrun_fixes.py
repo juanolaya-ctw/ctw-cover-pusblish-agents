@@ -15,7 +15,7 @@ import pytest
 from metricool_sync_posts.config import Settings
 from metricool_sync_posts.jobs.common import caption_has_placeholder
 from metricool_sync_posts.jobs.confirm_published import run_confirm_published
-from metricool_sync_posts.jobs.content_types import build_schedule_body
+from metricool_sync_posts.jobs.content_types import build_schedule_body, infer_instagram_type
 from metricool_sync_posts.jobs.schedule import run_schedule
 from metricool_sync_posts.jobs.sync_dates import run_sync_dates
 from metricool_sync_posts.media.pipeline import prepare_media_for_metricool
@@ -31,6 +31,8 @@ from metricool_sync_posts.metricool.matching import (
     find_duplicate_candidates,
     find_existing_piece,
     find_sync_match,
+    media_clearly_differs,
+    post_copy_is_thin,
     post_networks,
     post_state,
 )
@@ -1581,3 +1583,200 @@ def test_claimed_post_is_not_reused_for_a_later_row(tmp_path):
     notion.set_status.assert_called_once_with(first.page_id, "Programado", dry_run=False)
     reasons = [call.kwargs["reason"] for call in slack.call_args_list]
     assert "slot_conflict" in reasons
+
+
+_FISCAL_PAGE = "3f099829-d217-8101-bfc5-dd93eb8976fb"
+_FISCAL_CAPTION = (
+    "¿Me pueden abrir un proceso fiscal por usar IA? Este lunes el webinar de GovTech "
+    "recorre qué revisa la DIAN, qué guardar y cuándo pedir ayuda antes de publicar."
+)
+_DRIVE_FOLDER = (
+    "https://drive.google.com/drive/folders/1GovTechFiscalWebinarStories?usp=sharing"
+)
+_METRICOOL_STORY = "https://static.metricool.com/story/govtech-fiscal-20261012.jpeg"
+
+
+def _fiscal_story_row(**overrides):
+    base = dict(
+        page_id=_FISCAL_PAGE,
+        url="https://notion.so/govtech-fiscal",
+        channel="Luma, Instagram",
+        channels=["Luma", "Instagram"],
+        title="GovTech — Convocatoria webinar «¿Me pueden abrir un proceso fiscal por usar IA?»",
+        caption=_FISCAL_CAPTION,
+        final_file_url=_DRIVE_FOLDER,
+        content_type="Piezas estática, Historias",
+        publication=datetime(2026, 10, 12, 11, 0, tzinfo=BOG),
+        miniatura_url=None,
+        status="Aprobado - Edición Final",
+        metricool_id=None,
+        metricool_uuid=None,
+        cover_text="",
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def _empty_instagram_story(**overrides):
+    body = _post(
+        post_id=400100200,
+        text="",
+        when="2026-10-12T11:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+        media=[_METRICOOL_STORY],
+    )
+    body.update(overrides)
+    return body
+
+
+def test_content_type_keeps_historia_next_to_a_static_piece(tmp_path):
+    settings = _settings(tmp_path)
+    name = settings.notion_prop_content_type
+    page = {
+        "id": _FISCAL_PAGE,
+        "url": "https://notion.so/govtech-fiscal",
+        "properties": {
+            name: {
+                "type": "multi_select",
+                "multi_select": [
+                    {"name": "Piezas estática"},
+                    {"name": "Historias"},
+                ],
+            }
+        },
+    }
+    row = row_from_page(page, _prop_names(settings))
+    assert row.content_type == "Piezas estática, Historias"
+    assert infer_instagram_type(row.title, row.content_type) == "STORY"
+
+
+def test_empty_text_is_thin_and_a_drive_folder_is_not_a_different_file():
+    assert post_copy_is_thin({"text": ""})
+    assert post_copy_is_thin({"text": "   "})
+    assert post_copy_is_thin({"text": "ok"})
+    assert not post_copy_is_thin({"text": _FISCAL_CAPTION})
+    story = _empty_instagram_story()
+    assert not media_clearly_differs([_DRIVE_FOLDER], story)
+    assert not media_clearly_differs([], story)
+    assert media_clearly_differs(
+        ["https://cdn.example/govtech-story-a.jpg"],
+        {"media": ["https://cdn.example/govtech-story-b.jpg"]},
+    )
+    assert not media_clearly_differs(
+        ["https://cdn.example/govtech-story-a.jpg"],
+        {"media": ["https://cdn.example/govtech-story-a.jpg"]},
+    )
+
+
+def test_empty_instagram_story_slot_is_not_scheduled_again(tmp_path):
+    """GovTech Historia 2026-10-12 11:00 vs a pending Instagram story with no caption.
+
+    Word overlap cannot see an empty occupant. The slot is still taken.
+    A Drive folder and a Metricool jpeg are not proof the files differ.
+    """
+    row = _fiscal_story_row()
+    story = _empty_instagram_story()
+    stats, notion, metricool, media, slack = _run_schedule(
+        tmp_path, [row], dry=True, posts=[story]
+    )
+    assert stats["scheduled"] == 0
+    assert stats["reconciled"] == 0
+    assert stats["skipped"] == 1
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    notion.set_status.assert_not_called()
+    assert slack.call_args.kwargs["reason"] == "slot_conflict"
+    assert "empty or too short" in slack.call_args.kwargs["message"]
+
+
+def test_short_text_occupant_also_blocks_a_non_story_row(tmp_path):
+    row = _fiscal_story_row(
+        content_type="Piezas estática",
+        channels=["Instagram"],
+        channel="Instagram",
+    )
+    story = _empty_instagram_story(text="IG")
+    stats, _notion, metricool, media, slack = _run_schedule(
+        tmp_path, [row], dry=True, posts=[story]
+    )
+    assert stats["scheduled"] == 0
+    assert stats["skipped"] == 1
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    assert slack.call_args.kwargs["reason"] == "slot_conflict"
+
+
+def test_clearly_different_media_can_use_a_slot_whose_text_is_empty(tmp_path):
+    left = "https://cdn.example/govtech-story-a.jpg"
+    right = "https://cdn.example/govtech-story-b.jpg"
+    row = _fiscal_story_row(final_file_url=left)
+    story = _empty_instagram_story(media=[right])
+    stats, notion, metricool, media, slack = _run_schedule(
+        tmp_path, [row], dry=False, posts=[story]
+    )
+    assert stats["scheduled"] == 1
+    assert stats["skipped"] == 0
+    assert stats["reconciled"] == 0
+    media.assert_called_once()
+    notion.set_status.assert_called_once_with(row.page_id, "Programado", dry_run=False)
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert body["instagramData"]["type"] == "STORY"
+    assert body["providers"] == [{"network": "instagram"}]
+    assert slack.call_args.kwargs["reason"] == "scheduled"
+
+
+def test_same_direct_url_is_the_existing_story_not_a_second_post(tmp_path):
+    """An identical file URL is the story already on the calendar."""
+    url = "https://cdn.example/govtech-story-a.jpg"
+    row = _fiscal_story_row(final_file_url=url)
+    story = _empty_instagram_story(media=[url])
+    stats, notion, metricool, media, _slack = _run_schedule(
+        tmp_path, [row], dry=True, posts=[story]
+    )
+    assert stats["scheduled"] == 0
+    assert stats["reconciled"] == 1
+    assert stats["skipped"] == 0
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    notion.set_status.assert_not_called()
+
+
+def test_historia_in_a_free_slot_is_an_instagram_story(tmp_path):
+    row = _fiscal_story_row()
+    stats, _notion, metricool, media, slack = _run_schedule(tmp_path, [row], dry=False)
+    assert stats["scheduled"] == 1
+    assert stats["skipped"] == 0
+    media.assert_called_once()
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert body["instagramData"]["type"] == "STORY"
+    assert "videoThumbnailUrl" not in body
+    assert slack.call_args.kwargs["reason"] == "scheduled"
+
+
+def test_long_different_caption_still_conflicts_when_media_urls_differ(tmp_path):
+    row = _sched_row(
+        page_id="3f299829-d217-81cf-83ee-e66e8ef5139b",
+        channel="Instagram",
+        title="GovTech | Colombia cayó en el ranking de gobierno digital de la OCDE",
+        caption=_OCDE_CAPTION,
+        publication=datetime(2026, 10, 11, 15, 0, tzinfo=BOG),
+        content_type="Carrusel",
+        final_file_url="https://cdn.example/ocde-ranking.jpg",
+    )
+    other = _post(
+        post_id=387636704,
+        text=_TRUORA_CAPTION
+        + " Expandirse a México reconstruye confianza y compliance desde cero.",
+        when="2026-10-11T15:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+        media=["https://cdn.example/truora-mexico.jpg"],
+    )
+    stats, _notion, metricool, media, slack = _run_schedule(
+        tmp_path, [row], dry=True, posts=[other]
+    )
+    assert stats["scheduled"] == 0
+    assert stats["reconciled"] == 0
+    assert stats["skipped"] == 1
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    assert slack.call_args.kwargs["reason"] == "slot_conflict"

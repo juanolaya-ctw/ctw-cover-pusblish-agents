@@ -29,10 +29,16 @@ def is_miniatura_type(content_type: str | None) -> bool:
     return "miniatura" in fold_text(content_type)
 
 
+def is_story_type(content_type: str | None) -> bool:
+    """Historias / stories. Checked before a static piece on the same row."""
+    ct = fold_text(content_type)
+    return "historia" in ct or "stories" in ct or "story" in ct
+
+
 def infer_instagram_type(title: str, content_type: str | None) -> str:
     ct = fold_text(content_type)
-    if "historia" in ct or "stories" in ct or "story" in ct:
-        return "STORIES"
+    if is_story_type(content_type):
+        return "STORY"
     if is_trials_reel(title):
         return "TRIAL_REEL"
     if "carrusel" in ct or "carousel" in ct:

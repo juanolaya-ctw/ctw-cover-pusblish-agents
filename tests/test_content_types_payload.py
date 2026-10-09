@@ -5,7 +5,9 @@ from metricool_sync_posts.jobs.content_types import build_schedule_body, infer_i
 
 
 def test_instagram_stories_type():
-    assert infer_instagram_type("x", "Historias") == "STORIES"
+    assert infer_instagram_type("x", "Historias") == "STORY"
+    assert infer_instagram_type("x", "Piezas estática, Historias") == "STORY"
+    assert infer_instagram_type("x", "Stories") == "STORY"
 
 
 def test_spanish_static_is_post_not_reel():

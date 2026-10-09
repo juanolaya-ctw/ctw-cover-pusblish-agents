@@ -187,10 +187,13 @@ def _first_or_rich_title(props: dict[str, Any], name: str) -> str:
     return read_rich_text(props, name)
 
 
-def _first_content_type(props: dict[str, Any], name: str) -> str | None:
+def _content_type_label(props: dict[str, Any], name: str) -> str | None:
+    """Every Tipo value. 'Piezas estática' plus 'Historias' must stay a story."""
     multi = read_multi_select(props, name)
     if multi:
-        return multi[0]
+        parts = [part.strip() for part in multi if part and part.strip()]
+        if parts:
+            return ", ".join(parts)
     return read_select(props, name)
 
 
@@ -207,7 +210,7 @@ def row_from_page(page: dict[str, Any], settings_names: dict[str, str]) -> Notio
         caption=caption,
         final_file_url=read_url(props, settings_names["final_file"]),
         title=_first_or_rich_title(props, settings_names["title"]),
-        content_type=_first_content_type(props, settings_names["content_type"]),
+        content_type=_content_type_label(props, settings_names["content_type"]),
         miniatura_url=read_url(props, settings_names["miniatura"]),
         protagonistas=read_protagonistas_label(props, settings_names["protagonista"]),
         metricool_id=read_metricool_ref(props, settings_names.get("metricool_id", "")),
