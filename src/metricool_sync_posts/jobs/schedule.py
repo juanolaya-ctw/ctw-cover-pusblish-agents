@@ -28,6 +28,7 @@ from metricool_sync_posts.metricool.matching import (
     format_match_evidence,
     post_state,
 )
+from metricool_sync_posts.metricool.profiles import load_connected_networks
 from metricool_sync_posts.notion.client import NotionRepository
 from metricool_sync_posts.slack.dedupe import DedupeStore
 from metricool_sync_posts.slack.notify import notify_slack
@@ -73,18 +74,11 @@ def _row_excluded(channel: str | None, exclude: frozenset[str]) -> bool:
 
 
 def _row_should_drop(row, exclude: frozenset[str]) -> bool:
-    """Drop before media when every Canal value is excluded, or IG Nico is present.
-
-    Unknown labels stay in the loop so the skip is logged. A mix of Newsletter
-    or LinkedIn with a real network is kept; those labels are removed later.
-    """
+    """IG Nico skips the whole row before media. Other Canal values stay for the loop."""
     labels = canal_labels(row)
     if not labels:
         return False
-    plan = plan_canals(labels, exclude=exclude)
-    if plan.skip_nico:
-        return True
-    return not plan.networks and not plan.unrecognized
+    return plan_canals(labels, exclude=exclude).skip_nico
 
 
 def _as_post_list(raw: object) -> list[dict]:
@@ -120,6 +114,7 @@ def _claim_linked_posts(
     existing_posts: list[dict],
     exclude: frozenset[str],
     tz_name: str,
+    connected: frozenset[str],
 ) -> dict[str, str]:
     """Metricool post id → Notion page that already owns it."""
     claimed: dict[str, str] = {}
@@ -133,7 +128,7 @@ def _claim_linked_posts(
             continue
         if not caption:
             continue
-        plan = plan_canals(canal_labels(linked), exclude=exclude)
+        plan = plan_canals(canal_labels(linked), exclude=exclude, connected=connected)
         if plan.skip_nico or not plan.networks:
             continue
         hits = find_duplicate_candidates(
@@ -263,6 +258,7 @@ def run_schedule(
         ttl_seconds=settings.slack_dedupe_hours * 3600,
     )
     settings.ensure_data_dirs()
+    connected = load_connected_networks(metricool, settings.metricool_blog_id)
 
     now = now_in(settings.timezone)
     week_start, week_end = calendar_week_bounds(now, settings.timezone)
@@ -351,6 +347,7 @@ def run_schedule(
         existing_posts=existing_posts,
         exclude=exclude,
         tz_name=settings.timezone,
+        connected=connected,
     )
     if claimed:
         logger.info("Metricool posts already claimed by other Notion rows: %s", sorted(claimed))
@@ -358,21 +355,37 @@ def run_schedule(
     for row in rows:
         try:
             labels = canal_labels(row)
-            plan = plan_canals(labels, exclude=exclude)
+            plan = plan_canals(labels, exclude=exclude, connected=connected)
             if plan.skip_nico:
                 stats["skipped"] += 1
                 logger.warning("Skip %s: IG Nico is not scheduled", row.page_id)
                 continue
-            if not plan.networks or plan.unrecognized:
+            if plan.dropped:
+                logger.info(
+                    "Dropped Canal values for %s (not connected on this brand): %s",
+                    row.page_id,
+                    list(plan.dropped),
+                )
+            if not plan.networks:
                 stats["skipped"] += 1
-                if plan.unrecognized or not labels:
-                    logger.warning(
-                        "Skip %s: unknown/ambiguous channel %r",
-                        row.page_id,
-                        list(plan.unrecognized) or labels or None,
-                    )
-                else:
-                    logger.warning("Skip %s: LinkedIn is not scheduled", row.page_id)
+                logger.warning(
+                    "Skip %s: no connected network remains after dropping %s",
+                    row.page_id,
+                    list(plan.dropped) or labels or None,
+                )
+                page_url = getattr(row, "url", None) or row.page_id
+                notify_slack(
+                    webhook_url=settings.slack_webhook_url,
+                    channel=settings.slack_channel,
+                    dedupe=dedupe,
+                    notion_page_id=row.page_id,
+                    reason="no_connected_network",
+                    message=(
+                        f"Schedule skip: no connected network remains for {page_url} "
+                        f"(dropped {list(plan.dropped) or labels})"
+                    ),
+                    dry_run=dry,
+                )
                 continue
             networks = list(plan.networks)
             pub = publication_dt(row, settings.timezone)

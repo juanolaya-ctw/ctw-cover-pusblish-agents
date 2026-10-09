@@ -39,6 +39,21 @@ class MetricoolClient:
             "blogId": self._s.metricool_blog_id,
         }
 
+    def get_simple_profiles(self) -> list[dict[str, Any]]:
+        """GET /admin/simpleProfiles. One object per brand on this user."""
+        resp = self._http.get("/admin/simpleProfiles", params=self._params())
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        if isinstance(data, dict):
+            for key in ("data", "profiles", "items", "results"):
+                inner = data.get(key)
+                if isinstance(inner, list):
+                    return [item for item in inner if isinstance(item, dict)]
+        logger.warning("Unexpected simpleProfiles shape: %s", type(data))
+        return []
+
     def get_scheduled_posts(
         self,
         from_dt: datetime,

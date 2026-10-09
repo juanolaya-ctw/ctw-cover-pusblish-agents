@@ -105,13 +105,15 @@ def _sched_row(**overrides):
     return SimpleNamespace(**base)
 
 
-def _run_schedule(tmp_path, rows, *, dry, posts=None, linked=None, **settings_kw):
+def _run_schedule(tmp_path, rows, *, dry, posts=None, linked=None, profiles=None, **settings_kw):
     settings = _settings(tmp_path, **settings_kw)
     notion, metricool = MagicMock(), MagicMock()
     notion.fetch_approved_current_week.return_value = rows
     notion.fetch_linked_in_window.return_value = linked or []
     metricool.get_scheduled_posts.return_value = posts or []
     metricool.create_scheduled_post.return_value = {"id": 99}
+    if profiles is not None:
+        metricool.get_simple_profiles.return_value = profiles
     with (
         patch("metricool_sync_posts.jobs.schedule.NotionRepository", return_value=notion),
         patch("metricool_sync_posts.jobs.schedule.MetricoolClient", return_value=metricool),
@@ -573,16 +575,19 @@ def test_ig_nico_and_linkedin_canals_never_reach_media(tmp_path):
         _sched_row(page_id="3f099829-d217-8136-818f-fd268438643d", channel="LinkedIn CT"),
         _sched_row(page_id="3f199829-d217-816b-9594-df2ea9d49e0b", channel="Instagram"),
     ]
-    stats, _notion, metricool, media, _slack = _run_schedule(
+    stats, _notion, metricool, media, slack = _run_schedule(
         tmp_path,
         rows,
         dry=True,
         SCHEDULE_EXCLUDE_CHANNELS="",
     )
-    assert stats["queried"] == 1
+    # IG Nico leaves before the loop. LinkedIn stays and is skipped: no network remains.
+    assert stats["queried"] == 2
     assert stats["scheduled"] == 1
+    assert stats["skipped"] == 1
     assert media.call_count == 1
     metricool.create_scheduled_post.assert_not_called()
+    assert "no_connected_network" in {call.kwargs["reason"] for call in slack.call_args_list}
 
 
 def test_duplicates_do_not_consume_the_create_slot(tmp_path):

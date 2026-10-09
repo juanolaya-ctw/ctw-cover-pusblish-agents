@@ -22,17 +22,46 @@ NOTION_TO_METRICOOL: dict[str, str] = {
 }
 
 
+# Colombia Tech's usual connected set when simpleProfiles cannot be read.
+FALLBACK_CONNECTED_NETWORKS = frozenset({"instagram", "tiktok", "youtube"})
+# LinkedIn may be connected on the brand. This pipeline still does not publish it.
+NEVER_SCHEDULE_NETWORKS = frozenset({"linkedin"})
+
+# Exact Canal labels. These do not go through token splitting.
+_EXPLICIT_CANAL_NETWORKS = {
+    "canal ig": "instagram",
+    "canalig": "instagram",
+}
+
+
+def explicit_canal_network(label: str | None) -> str | None:
+    """Map a whole Canal label. ``Canal Ig`` is the colombiatechoficial feed."""
+    if not label:
+        return None
+    folded = _fold_label(label)
+    compact = _compact_label(label)
+    if folded in _EXPLICIT_CANAL_NETWORKS:
+        return _EXPLICIT_CANAL_NETWORKS[folded]
+    if compact in _EXPLICIT_CANAL_NETWORKS:
+        return _EXPLICIT_CANAL_NETWORKS[compact]
+    return None
+
+
 def normalize_channel(notion_channel: str | None, *, title: str | None = None) -> str | None:
     """Map a Canal label to one Metricool network.
 
-    LinkedIn is removed when another network is present (multi-network rows
-    keep the non-LinkedIn destination). A LinkedIn-only label still returns
-    ``linkedin`` so callers can exclude it. ``title`` is accepted for
-    caller compatibility and does not change the network.
+    ``Canal Ig`` is Instagram by exact label, not because the token ``ig``
+    appears in the text. LinkedIn is removed when another network is present
+    (multi-network rows keep the non-LinkedIn destination). A LinkedIn-only
+    label still returns ``linkedin`` so callers can exclude it. ``title`` is
+    accepted for caller compatibility and does not change the network.
     """
     _ = title
     if not notion_channel:
         return None
+    explicit = explicit_canal_network(notion_channel)
+    if explicit:
+        return explicit
     key = notion_channel.strip().lower()
     tokens = key.replace("/", " ").replace("+", " ").replace(",", " ").split()
     networks = {
@@ -112,6 +141,9 @@ def map_canal_label(label: str) -> str | None:
     """One Canal value → one Metricool network. LinkedIn/Newsletter/IG Nico → None."""
     if not label or _is_ig_nico(label) or _is_newsletter(label) or _is_linkedin_only(label):
         return None
+    explicit = explicit_canal_network(label)
+    if explicit:
+        return explicit
     if label_is_youtube_short(label):
         return "youtube"
     compact = _compact_label(label)
@@ -135,32 +167,43 @@ class CanalPlan:
     youtube_short: bool
     skip_nico: bool
     unrecognized: tuple[str, ...]
+    dropped: tuple[str, ...] = ()
 
 
 def plan_canals(
     labels: list[str],
     *,
     exclude: frozenset[str] = frozenset(),
+    connected: frozenset[str] | None = None,
 ) -> CanalPlan:
-    """Map every Canal value. Drop LinkedIn and Newsletter. Skip the row if IG Nico is present."""
+    """Map Canal values onto networks this brand can publish.
+
+    Labels that are not a connected network (Luma, WhatsApp, Newsletter,
+    LinkedIn, an unknown name, Facebook when the brand has no page) are
+    dropped. They do not block the row. IG Nico still skips the whole row.
+    ``connected`` defaults to Instagram, TikTok, and YouTube.
+    """
+    allowed = connected if connected is not None else FALLBACK_CONNECTED_NETWORKS
+    allowed = frozenset(net for net in allowed if net not in NEVER_SCHEDULE_NETWORKS)
     if any(_is_ig_nico(label) for label in labels):
-        return CanalPlan((), False, True, ())
+        return CanalPlan((), False, True, (), ())
     networks: list[str] = []
     youtube_short = False
-    unrecognized: list[str] = []
+    dropped: list[str] = []
     for label in labels:
         if (
             _is_newsletter(label)
             or _is_linkedin_only(label)
             or _excluded_label(label, exclude)
         ):
+            dropped.append(label)
             continue
         network = map_canal_label(label)
-        if network is None:
-            unrecognized.append(label)
+        if network is None or network not in allowed:
+            dropped.append(label)
             continue
         if network not in networks:
             networks.append(network)
         if network == "youtube" and label_is_youtube_short(label):
             youtube_short = True
-    return CanalPlan(tuple(networks), youtube_short, False, tuple(unrecognized))
+    return CanalPlan(tuple(networks), youtube_short, False, tuple(dropped), tuple(dropped))

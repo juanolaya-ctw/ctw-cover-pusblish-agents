@@ -55,11 +55,18 @@ def test_exact_target_beyond_normal_limit(tmp_path):
     mc.create_scheduled_post.assert_not_called()
 
 
-@pytest.mark.parametrize('rows', [[], [row(OTHER)], [row(TARGET), row(TARGET)],
-                                  [row(TARGET, 'LinkedIn Majo')]])
+@pytest.mark.parametrize('rows', [[], [row(OTHER)], [row(TARGET), row(TARGET)]])
 def test_zero_duplicate_or_excluded_fail_closed(tmp_path, rows):
     with pytest.raises(ValueError):
         exercise(tmp_path, rows)
+
+
+def test_only_page_linkedin_skips_with_no_connected_network(tmp_path):
+    stats, _notion, mc, media = exercise(tmp_path, [row(TARGET, 'LinkedIn Majo')])
+    assert stats['scheduled'] == 0
+    assert stats['skipped'] == 1
+    media.assert_not_called()
+    mc.create_scheduled_post.assert_not_called()
 
 
 def test_wrong_date_fail_closed(tmp_path):
