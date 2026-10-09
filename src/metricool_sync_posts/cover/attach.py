@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from urllib.parse import parse_qs, urlparse
 
 from metricool_sync_posts.config import Settings
@@ -56,6 +57,9 @@ def resolve_miniatura_url(
 ) -> str | None:
     """Miniatura must be a public image URL, not a Drive preview or folder.
 
+    Public Drive /uc?export=download&id=FILE links are allowed, but a
+    successful normalize/pilot is still needed to prove public image access.
+
     Normalization is skipped in dry-run. Temporary Notion file URLs need a
     durable external image URL for scheduling beyond their expiry.
     """
@@ -64,13 +68,25 @@ def resolve_miniatura_url(
     url = raw_url.strip()
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    direct_drive = (
+        host == "drive.google.com"
+        and parsed.netloc == "drive.google.com"
+        and parsed.path == "/uc"
+        and not parsed.fragment
+        and set(query) == {"export", "id"}
+        and query.get("export") == ["download"]
+        and len(query.get("id", [])) == 1
+        and re.fullmatch(r"[A-Za-z0-9_-]+", query["id"][0]) is not None
+    )
     if (
         parsed.scheme != "https"
         or not host
         or "x-amz-expires" in {k.lower() for k in parse_qs(parsed.query)}
         or parsed.username
         or parsed.password
-        or host in {"localhost", "drive.google.com", "docs.google.com"}
+        or host in {"localhost", "docs.google.com"}
+        or (host == "drive.google.com" and not direct_drive)
     ):
         logger.warning("Miniatura needs a public HTTPS image, not a preview URL")
         return None
