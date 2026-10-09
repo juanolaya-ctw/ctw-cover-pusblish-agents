@@ -12,13 +12,10 @@ def _base(**overrides):
     return Settings(**env)
 
 
-def test_require_cover_false_by_default_when_schedule_enabled():
-    """Go-live: schedule must not block on covers / Dropbox API."""
-    assert _base(ENABLE_SCHEDULE=True).require_cover_for_schedule is False
-
-
-def test_require_cover_false_when_schedule_disabled():
-    assert _base(ENABLE_SCHEDULE=False).require_cover_for_schedule is False
+def test_require_cover_true_by_default():
+    """Instagram reels are not scheduled without a cover unless the env switch is off."""
+    assert _base(ENABLE_SCHEDULE=True).require_cover_for_schedule is True
+    assert _base(ENABLE_SCHEDULE=False).require_cover_for_schedule is True
 
 
 def test_require_cover_explicit_true_opt_in():

@@ -70,6 +70,7 @@ def test_exclude_ig_nico_before_media_pipeline():
         ENABLE_SCHEDULE=True,
         DRY_RUN=True,
         TIMEZONE="America/Bogota",
+        REQUIRE_COVER_FOR_SCHEDULE=False,
     )
 
     notion = MagicMock()
@@ -97,10 +98,6 @@ def test_exclude_ig_nico_before_media_pipeline():
             return_value=datetime(2026, 10, 8, 12, 0, tzinfo=ZoneInfo("America/Bogota")),
         ),
         patch("metricool_sync_posts.jobs.schedule.notify_slack"),
-        patch(
-            "metricool_sync_posts.jobs.schedule.prepare_cover_for_publish_task",
-            return_value=None,
-        ),
         patch(
             "metricool_sync_posts.jobs.schedule.calendar_week_bounds",
             return_value=(

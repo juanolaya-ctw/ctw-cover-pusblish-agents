@@ -31,7 +31,7 @@ def test_upload_falls_back_to_litterbox_when_transfer_disabled(tmp_path: Path):
         url = upload_public_url(settings, path)
 
     assert url == "https://litter.catbox.moe/abc.mp4"
-    lit.assert_called_once_with(path)
+    lit.assert_called_once_with(path, time="24h")
 
 
 def test_transfer_sh_optional_then_fallback(tmp_path: Path):
@@ -76,6 +76,39 @@ def test_s3_preferred_when_configured(tmp_path: Path):
         url = upload_public_url(settings, path)
     assert url.endswith("clip.mp4")
     s3.assert_called_once()
+
+
+def test_cover_upload_asks_litterbox_for_72h_and_skips_uguu(tmp_path: Path):
+    path = tmp_path / "cover.png"
+    path.write_bytes(b"png")
+    settings = _settings()
+    with (
+        patch(
+            "metricool_sync_posts.media.upload_public._upload_litterbox",
+            return_value="https://litter.catbox.moe/cover.png",
+        ) as lit,
+        patch("metricool_sync_posts.media.upload_public._upload_uguu") as uguu,
+    ):
+        url = upload_public_url(settings, path, min_hours=72, allow_short=False)
+    assert url.endswith("cover.png")
+    lit.assert_called_once_with(path, time="72h")
+    uguu.assert_not_called()
+
+
+def test_cover_upload_refuses_short_host_when_72h_required(tmp_path: Path):
+    path = tmp_path / "cover.png"
+    path.write_bytes(b"png")
+    settings = _settings()
+    with (
+        patch(
+            "metricool_sync_posts.media.upload_public._upload_litterbox",
+            side_effect=RuntimeError("down"),
+        ),
+        patch("metricool_sync_posts.media.upload_public._upload_uguu") as uguu,
+        pytest.raises(RuntimeError, match="72h"),
+    ):
+        upload_public_url(settings, path, min_hours=72, allow_short=False)
+    uguu.assert_not_called()
 
 
 def test_all_hosts_fail_raises(tmp_path: Path):

@@ -31,6 +31,7 @@ class NotionRepository:
             "caption": settings.notion_prop_caption,
             "final_file": settings.notion_prop_final_file,
             "title": settings.notion_prop_title,
+            "cover_text": settings.notion_prop_cover_text,
             "content_type": settings.notion_prop_content_type,
             "miniatura": settings.notion_prop_miniatura,
             "protagonista": settings.notion_prop_protagonista,

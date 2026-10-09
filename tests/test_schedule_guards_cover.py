@@ -86,7 +86,8 @@ def exercise(tmp_path, *, dry, notion_failure=False, rows=None):
                           status='Aprobado - Edición Final', publication=PUB,
                           channel='IG CTW', caption='fixture caption', title='fixture Reel',
                           content_type='Reel', final_file_url='https://cdn.example/video.mp4',
-                          miniatura_url='https://cdn.example/cover.jpg', protagonistas='')
+                          miniatura_url='https://cdn.example/cover.jpg', protagonistas='',
+                          cover_text='Hook de la portada')
     notion, metricool = MagicMock(), MagicMock()
     notion.fetch_approved_current_week.return_value = rows or [row]
     if notion_failure:

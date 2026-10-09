@@ -54,6 +54,7 @@ def _settings(tmp_path, **extra):
         TIMEZONE=TZ,
         MEDIA_WORK_DIR=tmp_path / "media",
         SLACK_DEDUPE_FILE=tmp_path / "slack.json",
+        REQUIRE_COVER_FOR_SCHEDULE=False,
     )
     data.update(extra)
     return Settings(**data)

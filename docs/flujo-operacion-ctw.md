@@ -31,7 +31,6 @@ No usar `METRICOOL_BLOG_ID` `7255578` ni `7272512`. `--dry-run` no escribe en Me
 - **YouTube URL:** programación sobre video existente (equipo debe pasarlo a público antes de la hora).
 - **Carrusel:** todos los images de la carpeta (máx. 10).
 
-## Portadas (Fase 2 — opcional)
+## Portadas de Reel
 
-Solo **Instagram** vía `CTW_COVER_AGENT_PATH` + opcional `DROPBOX_ACCESS_TOKEN` (API, expira ~4h).  
-Go-live: dejar path vacío y `REQUIRE_COVER_FOR_SCHEDULE=false` — **no bloquea** el schedule.
+Instagram `REEL` y `TRIAL_REEL` (también en un post de varias redes) necesitan portada antes de programarse. El texto de la portada es `Titulo` (`NOTION_PROP_COVER_TEXT`), no el título de la tarea. Vacío → `missing_hook`. `CTW_COVER_AGENT_PATH` prepara el PNG; si no está listo se omite con el motivo del agente. `REQUIRE_COVER_FOR_SCHEDULE=true` por defecto. El PNG se publica en un host de al menos 72 h (S3 o litterbox) y Metricool lo recibe en `videoThumbnailUrl`. `--dry-run` no sube archivos.

@@ -10,21 +10,13 @@ from zoneinfo import ZoneInfo
 
 from metricool_sync_posts.build_info import build_label
 from metricool_sync_posts.config import Settings
-from metricool_sync_posts.cover.attach import (
-    resolve_cover_url_for_metricool,
-    resolve_miniatura_url,
-)
-from metricool_sync_posts.cover.bridge import prepare_cover_for_publish_task
+from metricool_sync_posts.cover.reel import resolve_instagram_reel_cover
 from metricool_sync_posts.jobs.common import (
     caption_for_row,
     caption_has_placeholder,
     publication_dt,
 )
-from metricool_sync_posts.jobs.content_types import (
-    build_schedule_body,
-    infer_instagram_type,
-    is_miniatura_type,
-)
+from metricool_sync_posts.jobs.content_types import build_schedule_body, is_miniatura_type
 from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
 from metricool_sync_posts.media.final_file import FinalFileKind, classify_final_file
 from metricool_sync_posts.media.resolve import prepare_media_urls_for_metricool
@@ -606,23 +598,27 @@ def run_schedule(
                 )
                 break
 
-            cover_enabled = (
-                "instagram" in networks
-                and infer_instagram_type(row.title, row.content_type) in {"REEL", "TRIAL_REEL"}
+            cover = resolve_instagram_reel_cover(
+                settings=settings,
+                row=row,
+                networks=networks,
+                metricool=metricool,
+                dry_run=dry,
             )
-            cover_url = (
-                resolve_miniatura_url(row.miniatura_url, metricool=metricool, dry_run=dry)
-                if cover_enabled else None
-            )
-            cover_result = None
-            if cover_enabled and not cover_url and settings.ctw_cover_agent_path:
-                cover_result = prepare_cover_for_publish_task(settings, row)
-
-            cover_bytes = None
-            if cover_result:
-                raw = cover_result.get("cover_bytes")
-                if isinstance(raw, (bytes, bytearray)):
-                    cover_bytes = bytes(raw)
+            if cover.skip_reason:
+                stats["skipped"] += 1
+                logger.warning("Skip %s: %s", row.page_id, cover.skip_reason)
+                notify_slack(
+                    webhook_url=settings.slack_webhook_url,
+                    channel=settings.slack_channel,
+                    dedupe=dedupe,
+                    notion_page_id=row.page_id,
+                    reason=cover.skip_reason,
+                    message=cover.skip_message
+                    or f"Schedule skip: {cover.skip_reason} for {row.url}",
+                    dry_run=dry,
+                )
+                continue
 
             youtube_existing = file_ref.kind == FinalFileKind.YOUTUBE
             media_urls: list[str] = []
@@ -632,15 +628,6 @@ def run_schedule(
                     metricool=metricool,
                     raw_archivo_final=row.final_file_url,
                     content_type=row.content_type,
-                    dry_run=dry,
-                )
-
-            if cover_bytes:
-                cover_url = resolve_cover_url_for_metricool(
-                    settings=settings,
-                    metricool=metricool,
-                    cover_bytes=cover_bytes,
-                    page_id=row.page_id,
                     dry_run=dry,
                 )
 
@@ -658,27 +645,6 @@ def run_schedule(
                 )
                 continue
 
-            if (
-                cover_enabled
-                and settings.require_cover_for_schedule
-                and not cover_url
-            ):
-                stats["skipped"] += 1
-                logger.warning(
-                    "Skip %s: REQUIRE_COVER_FOR_SCHEDULE and no resolved cover URL",
-                    row.page_id,
-                )
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason="missing_cover",
-                    message=f"Schedule skip: missing cover for {row.url}",
-                    dry_run=dry,
-                )
-                continue
-
             body = build_schedule_body(
                 caption=caption,
                 publication=pub,
@@ -687,7 +653,7 @@ def run_schedule(
                 title=row.title,
                 content_type=row.content_type,
                 media_urls=media_urls,
-                cover_url=cover_url,
+                cover_url=cover.cover_url,
                 youtube_existing_video=youtube_existing,
                 networks=networks,
                 youtube_short=plan.youtube_short,

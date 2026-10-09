@@ -17,18 +17,33 @@ logger = logging.getLogger(__name__)
 # transfer.sh / 0x0.st timed out from agent + Juan's Windows; optional only.
 # tmpfiles.org uploaded but returned HTML landing pages (not usable for Metricool).
 
-_FREE_HOST_NAMES = ("litterbox", "uguu.se")
+
+def _litterbox_time(min_hours: int) -> str:
+    """litterbox accepts 1h, 12h, 24h, or 72h."""
+    if min_hours >= 72:
+        return "72h"
+    if min_hours >= 24:
+        return "24h"
+    if min_hours >= 12:
+        return "12h"
+    return "1h"
 
 
-def upload_public_url(settings: Settings, path: Path) -> str:
+def upload_public_url(
+    settings: Settings,
+    path: Path,
+    *,
+    min_hours: int = 24,
+    allow_short: bool = True,
+) -> str:
     """
     Return a publicly fetchable HTTP(S) URL for ``path``.
 
     Order:
-      1. S3 when S3_* is configured
+      1. S3 when S3_* is configured (durable)
       2. transfer.sh only when TRANSFER_SH / TRANSFER_SH_ENABLED (optional; may timeout)
-      3. litterbox.catbox.moe (24h)
-      4. uguu.se
+      3. litterbox.catbox.moe (24h, or 72h when ``min_hours`` >= 72)
+      4. uguu.se, unless ``allow_short`` is false and a 72h host was required
     """
     errors: list[str] = []
 
@@ -48,19 +63,36 @@ def upload_public_url(settings: Settings, path: Path) -> str:
             logger.warning("Public upload failed (%s); trying free hosts", msg)
             errors.append(msg)
 
-    uploaders = {
-        "litterbox": _upload_litterbox,
-        "uguu.se": _upload_uguu,
-    }
-    for name in _FREE_HOST_NAMES:
-        try:
-            url = uploaders[name](path)
-            logger.info("Uploaded via %s: %s", name, url)
-            return url
-        except Exception as exc:
-            msg = f"{name}: {exc}"
-            logger.warning("Public upload failed (%s)", msg)
-            errors.append(msg)
+    litter_time = _litterbox_time(min_hours)
+    try:
+        url = _upload_litterbox(path, time=litter_time)
+        logger.info("Uploaded via litterbox (%s): %s", litter_time, url)
+        return url
+    except Exception as exc:
+        msg = f"litterbox: {exc}"
+        logger.warning("Public upload failed (%s)", msg)
+        errors.append(msg)
+
+    if min_hours >= 72 and not allow_short:
+        raise RuntimeError(
+            "No public host lasting at least 72h (S3 / litterbox). "
+            f"Last errors: {errors}"
+        )
+
+    try:
+        url = _upload_uguu(path)
+        logger.info("Uploaded via uguu.se: %s", url)
+        if min_hours >= 72:
+            logger.warning(
+                "Cover host uguu.se may expire before %sh: %s",
+                min_hours,
+                url,
+            )
+        return url
+    except Exception as exc:
+        msg = f"uguu.se: {exc}"
+        logger.warning("Public upload failed (%s)", msg)
+        errors.append(msg)
 
     raise RuntimeError(
         "All public upload hosts failed (S3 / transfer.sh / litterbox / uguu). "
@@ -94,13 +126,13 @@ def _upload_transfer_sh(settings: Settings, path: Path) -> str:
     raise RuntimeError(f"transfer.sh upload failed after retries: {last_exc}") from last_exc
 
 
-def _upload_litterbox(path: Path) -> str:
-    """24h anonymous upload; returns direct https://litter.catbox.moe/… URL."""
+def _upload_litterbox(path: Path, *, time: str = "24h") -> str:
+    """Anonymous upload; ``time`` is 1h, 12h, 24h, or 72h. Direct litter.catbox.moe URL."""
     timeout = httpx.Timeout(connect=20.0, read=300.0, write=300.0, pool=20.0)
     with path.open("rb") as f:
         resp = httpx.post(
             "https://litterbox.catbox.moe/resources/internals/api.php",
-            data={"reqtype": "fileupload", "time": "24h"},
+            data={"reqtype": "fileupload", "time": time},
             files={"fileToUpload": (path.name, f, "application/octet-stream")},
             timeout=timeout,
         )

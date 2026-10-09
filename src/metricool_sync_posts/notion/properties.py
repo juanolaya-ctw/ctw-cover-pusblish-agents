@@ -108,6 +108,7 @@ class NotionPostRow:
         metricool_id: str | None = None,
         metricool_uuid: str | None = None,
         channels: list[str] | None = None,
+        cover_text: str = "",
     ) -> None:
         self.page_id = page_id
         self.url = url
@@ -122,6 +123,7 @@ class NotionPostRow:
         self.protagonistas = protagonistas
         self.metricool_id = metricool_id
         self.metricool_uuid = metricool_uuid
+        self.cover_text = cover_text
         if channels:
             self.channels = [item.strip() for item in channels if item and item.strip()]
         elif channel:
@@ -210,4 +212,5 @@ def row_from_page(page: dict[str, Any], settings_names: dict[str, str]) -> Notio
         protagonistas=read_protagonistas_label(props, settings_names["protagonista"]),
         metricool_id=read_metricool_ref(props, settings_names.get("metricool_id", "")),
         metricool_uuid=read_metricool_ref(props, settings_names.get("metricool_uuid", "")),
+        cover_text=read_rich_text(props, settings_names.get("cover_text") or "Titulo"),
     )

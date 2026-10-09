@@ -41,7 +41,6 @@ def main() -> None:
     settings = load_settings()
     if args.enable:
         settings.enable_schedule = True
-        # Covers stay optional unless REQUIRE_COVER_FOR_SCHEDULE=true (Phase 2)
     setup_logging(settings.log_level)
     logger.info("metricool_sync_posts build: %s", build_label())
     exclude = settings.schedule_exclude_channels_set() | frozenset(args.exclude_channel)

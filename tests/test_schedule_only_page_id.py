@@ -23,6 +23,7 @@ def row(page_id, channel='Instagram'):
 def exercise(tmp_path, rows, target=TARGET, **kwargs):
     settings = Settings(NOTION_TOKEN='x', NOTION_DATABASE_ID='x', METRICOOL_USER_TOKEN='x',
                         METRICOOL_USER_ID='x', ENABLE_SCHEDULE=True,
+                        REQUIRE_COVER_FOR_SCHEDULE=False,
                         MEDIA_WORK_DIR=tmp_path / 'media', SLACK_DEDUPE_FILE=tmp_path / 'slack')
     notion, mc = MagicMock(), MagicMock()
     notion.fetch_approved_current_week.return_value = rows

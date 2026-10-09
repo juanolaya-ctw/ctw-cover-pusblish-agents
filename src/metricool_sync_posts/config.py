@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     notion_prop_title: str = Field(
         default="Titulo de la publicación ", alias="NOTION_PROP_TITLE"
     )
+    # Hook drawn on the Instagram reel cover. Not the publication title.
+    notion_prop_cover_text: str = Field(default="Titulo", alias="NOTION_PROP_COVER_TEXT")
     notion_prop_content_type: str = Field(
         default="Tipo de contenido ", alias="NOTION_PROP_CONTENT_TYPE"
     )
@@ -109,9 +111,9 @@ class Settings(BaseSettings):
     dry_run: bool = Field(default=False, alias="DRY_RUN")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
-    # Optional ctw-cover-agent (Phase 2 / Instagram only; OFF for go-live)
+    # ctw-cover-agent renders Instagram reel covers. It refreshes Dropbox itself.
     ctw_cover_agent_path: str | None = Field(default=None, alias="CTW_COVER_AGENT_PATH")
-    # Only for cover-agent SVG/Dropbox API path — NOT required for Archivo Final share links
+    # Forwarded only when the agent still accepts a short-lived access token.
     dropbox_access_token: str | None = Field(default=None, alias="DROPBOX_ACCESS_TOKEN")
     require_cover_for_schedule_override: bool | None = Field(
         default=None,
@@ -121,15 +123,14 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def require_cover_for_schedule(self) -> bool:
-        """
-        Skip IG rows without cover_bytes when True.
+        """Instagram reels need a cover before they are scheduled.
 
-        Default False (go-live): schedule works without CTW_COVER_AGENT_PATH / Dropbox API.
-        Set REQUIRE_COVER_FOR_SCHEDULE=true only when cover agent is configured (Phase 2).
+        Default True. Set REQUIRE_COVER_FOR_SCHEDULE=false to schedule a reel
+        with no thumbnail.
         """
         if self.require_cover_for_schedule_override is not None:
             return self.require_cover_for_schedule_override
-        return False
+        return True
 
     def schedule_exclude_channels_set(self) -> frozenset[str]:
         parts = [p.strip() for p in self.schedule_exclude_channels.split(",") if p.strip()]
