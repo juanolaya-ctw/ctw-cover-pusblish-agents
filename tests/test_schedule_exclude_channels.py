@@ -43,6 +43,7 @@ def _row(*, page_id: str, channel: str):
         url=f"https://notion.so/{page_id}",
         channel=channel,
         title=f"title-{page_id[:8]}",
+        cover_text="Hook publico",
         caption="caption",
         final_file_url="https://www.dropbox.com/s/x/file.mp4?dl=0",
         content_type="Reels",

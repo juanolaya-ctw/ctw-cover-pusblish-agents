@@ -31,6 +31,40 @@ def test_carousel_media_list():
     assert body["media"] == ["https://a.png", "https://b.png"]
 
 
+def test_youtube_title_is_the_hook_not_the_task_title():
+    pub = datetime(2026, 10, 6, 12, 0, tzinfo=ZoneInfo("America/Bogota"))
+    hook = "H" * 120
+    body = build_schedule_body(
+        caption="caption que no debe publicarse como titulo",
+        publication=pub,
+        tz_name="America/Bogota",
+        channel="YouTube",
+        title="Trials: Cursos Google",
+        content_type="Video Largo",
+        media_urls=["https://v.mp4"],
+        youtube_title=hook,
+    )
+    assert body["youtubeData"]["type"] == "video"
+    assert body["youtubeData"]["title"] == "H" * 100
+    assert "Trials" not in body["youtubeData"]["title"]
+    assert "caption" not in body["youtubeData"]["title"]
+
+    short = build_schedule_body(
+        caption="otro caption",
+        publication=pub,
+        tz_name="America/Bogota",
+        channel="Youtube Shorts",
+        title="Trials: Cursos Google",
+        content_type="Video Largo",
+        media_urls=["https://v.mp4"],
+        networks=["youtube"],
+        youtube_short=True,
+        youtube_title="Cursos de Google en un minuto",
+    )
+    assert short["youtubeData"]["type"] == "short"
+    assert short["youtubeData"]["title"] == "Cursos de Google en un minuto"
+
+
 def test_instagram_cover_url_on_reel():
     pub = datetime(2026, 10, 6, 12, 0, tzinfo=ZoneInfo("America/Bogota"))
     body = build_schedule_body(

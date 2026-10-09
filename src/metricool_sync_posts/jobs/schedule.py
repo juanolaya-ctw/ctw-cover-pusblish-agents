@@ -611,6 +611,22 @@ def run_schedule(
                 )
                 break
 
+            hook = (getattr(row, "cover_text", "") or "").strip()
+            if "youtube" in networks and not hook:
+                stats["skipped"] += 1
+                logger.warning("Skip %s: YouTube row has no Titulo hook", row.page_id)
+                page_url = getattr(row, "url", None) or row.page_id
+                notify_slack(
+                    webhook_url=settings.slack_webhook_url,
+                    channel=settings.slack_channel,
+                    dedupe=dedupe,
+                    notion_page_id=row.page_id,
+                    reason="missing_hook",
+                    message=f"Schedule skip: YouTube row has no Titulo hook for {page_url}",
+                    dry_run=dry,
+                )
+                continue
+
             cover = resolve_instagram_reel_cover(
                 settings=settings,
                 row=row,
@@ -670,6 +686,7 @@ def run_schedule(
                 youtube_existing_video=youtube_existing,
                 networks=networks,
                 youtube_short=plan.youtube_short,
+                youtube_title=hook,
             )
             if dry:
                 logger.info("[dry-run] Would schedule Metricool post for %s", row.page_id)

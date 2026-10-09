@@ -881,6 +881,7 @@ def test_multi_canal_schedules_one_post_to_every_network(tmp_path):
         channel=None,
         channels=["Youtube Shorts", "TikTok"],
         title="4 libros de negocios",
+        cover_text="Cuatro libros para esta semana",
         content_type="Video Largo",
         publication=datetime(2026, 10, 10, 18, 0, tzinfo=BOG),
         caption="cuatro libros de negocios que el equipo recomienda esta semana",
@@ -897,6 +898,8 @@ def test_multi_canal_schedules_one_post_to_every_network(tmp_path):
     body = metricool.create_scheduled_post.call_args.args[0]
     assert body["providers"] == [{"network": "youtube"}, {"network": "tiktok"}]
     assert body["youtubeData"]["type"] == "short"
+    assert body["youtubeData"]["title"] == "Cuatro libros para esta semana"
+    assert "4 libros de negocios" not in body["youtubeData"]["title"]
     assert "instagramData" not in body
     assert "linkedinData" not in body
     notion.set_status.assert_called_once_with(row.page_id, "Programado", dry_run=False)
@@ -906,6 +909,7 @@ def test_multi_canal_schedules_one_post_to_every_network(tmp_path):
         channel=None,
         channels=["TikTok", "Youtube Shorts"],
         title="GovTech: dBrain+",
+        cover_text="dBrain en un minuto",
         content_type="Video Largo",
         caption="govtech dbrain un caso para contar en corto y en tiktok juntos",
     )
@@ -913,12 +917,14 @@ def test_multi_canal_schedules_one_post_to_every_network(tmp_path):
     body = metricool.create_scheduled_post.call_args.args[0]
     assert body["providers"] == [{"network": "tiktok"}, {"network": "youtube"}]
     assert body["youtubeData"]["type"] == "short"
+    assert body["youtubeData"]["title"] == "dBrain en un minuto"
 
     cased = _sched_row(
         page_id="3f399829-d217-814e-a5ec-d856e45ce5e5",
         channel=None,
         channels=["YoUtUbE sHoRtS", "TiKToK"],
         title="casing",
+        cover_text="El mismo mapa",
         content_type="Video Largo",
         caption="el mismo mapeo tiene que aguantar mayusculas mezcladas en canal",
     )
@@ -926,6 +932,7 @@ def test_multi_canal_schedules_one_post_to_every_network(tmp_path):
     body = metricool.create_scheduled_post.call_args.args[0]
     assert [item["network"] for item in body["providers"]] == ["youtube", "tiktok"]
     assert body["youtubeData"]["type"] == "short"
+    assert body["youtubeData"]["title"] == "El mismo mapa"
 
 
 def test_multi_canal_drops_linkedin_and_newsletter_and_skips_ig_nico(tmp_path):
@@ -945,6 +952,8 @@ def test_multi_canal_drops_linkedin_and_newsletter_and_skips_ig_nico(tmp_path):
         page_id="3f499829-d217-814e-a5ec-d856e45ce5e6",
         channel=None,
         channels=["Newsletter", "YouTube"],
+        title="Expandir la suscripcion fuera de las paredes",
+        cover_text="Smartfit sale del gimnasio",
         content_type="Video Largo",
         caption="youtube largo se programa y el newsletter se queda manual",
     )
@@ -952,6 +961,8 @@ def test_multi_canal_drops_linkedin_and_newsletter_and_skips_ig_nico(tmp_path):
     body = metricool.create_scheduled_post.call_args.args[0]
     assert body["providers"] == [{"network": "youtube"}]
     assert body["youtubeData"]["type"] == "video"
+    assert body["youtubeData"]["title"] == "Smartfit sale del gimnasio"
+    assert "paredes" not in body["youtubeData"]["title"]
 
     nico = _sched_row(
         page_id="3f599829-d217-814e-a5ec-d856e45ce5e7",
@@ -965,6 +976,41 @@ def test_multi_canal_drops_linkedin_and_newsletter_and_skips_ig_nico(tmp_path):
     metricool.create_scheduled_post.assert_not_called()
     media.assert_not_called()
     notion.set_status.assert_not_called()
+
+
+def test_youtube_without_titulo_skips_and_a_long_hook_is_trimmed(tmp_path):
+    empty = _sched_row(
+        channel=None,
+        channels=["Instagram", "YouTube"],
+        title="Trials: Cursos Google",
+        cover_text="   ",
+        caption="caption largo que tampoco es el titulo publico del video",
+        content_type="Video Largo",
+    )
+    stats, notion, metricool, media, slack = _run_schedule(tmp_path, [empty], dry=False)
+    assert stats["scheduled"] == 0
+    assert stats["skipped"] == 1
+    media.assert_not_called()
+    metricool.create_scheduled_post.assert_not_called()
+    notion.set_status.assert_not_called()
+    assert slack.call_args.kwargs["reason"] == "missing_hook"
+
+    hook = "Aprende con Google " * 8
+    ready = _sched_row(
+        page_id="3f399829-d217-814e-a5ec-d856e45ce5e8",
+        channel="YouTube",
+        title="Trials: Cursos Google",
+        cover_text=f"  {hook}",
+        caption="caption largo que tampoco es el titulo publico del video",
+        content_type="Video Largo",
+    )
+    stats, _notion, metricool, _media, _slack = _run_schedule(tmp_path, [ready], dry=False)
+    assert stats["scheduled"] == 1
+    title = metricool.create_scheduled_post.call_args.args[0]["youtubeData"]["title"]
+    assert title == hook.strip()[:100]
+    assert len(title) == 100
+    assert "Trials" not in title
+    assert "caption" not in title
 
 
 def test_same_slot_is_a_duplicate_even_when_caption_was_edited(tmp_path):

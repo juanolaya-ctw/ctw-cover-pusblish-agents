@@ -60,6 +60,7 @@ def build_schedule_body(
     youtube_existing_video: bool = False,
     networks: list[str] | None = None,
     youtube_short: bool = False,
+    youtube_title: str | None = None,
 ) -> dict[str, Any]:
     if is_miniatura_type(content_type):
         raise ValueError(f"Miniatura rows are not scheduled as posts: {content_type!r}")
@@ -106,8 +107,9 @@ def build_schedule_body(
             yt_type = "video"
         else:
             yt_type = "video"
+        # Public YouTube title is the Titulo hook, never the task title or caption.
         body["youtubeData"] = {
-            "title": (title or caption)[:100],
+            "title": (youtube_title or "").strip()[:100],
             "type": yt_type,
             "privacy": "public",
             "madeForKids": False,

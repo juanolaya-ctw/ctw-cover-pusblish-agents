@@ -257,27 +257,42 @@ def test_trial_reel_requires_cover(tmp_path):
     assert "render_failed" in _reasons(slack)
 
 
-def test_static_and_youtube_do_not_need_a_cover(tmp_path):
+def test_static_does_not_need_a_cover_and_youtube_needs_a_hook(tmp_path):
     def prepare(*_args, **_kwargs):
         raise AssertionError("non-reel must not prepare a cover")
 
     static = _row(content_type="Piezas estática", cover_text="", page_id=PAGE)
+    stats, _notion, metricool, media, slack, prepare_mock, upload = _run(
+        tmp_path, static, dry=False, prepare=prepare
+    )
+    assert stats["scheduled"] == 1
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert "videoThumbnailUrl" not in body
+    assert "youtubeData" not in body
+    prepare_mock.assert_not_called()
+    upload.assert_not_called()
+    media.assert_called()
+    assert "missing_hook" not in _reasons(slack)
+
     youtube = _row(
         channel="YouTube",
         content_type="Video",
+        title="Trials: Cursos Google",
         cover_text="",
+        caption="el caption interno no puede ser el titulo de youtube",
         page_id="3f299829-d217-81cf-83ee-e66e8ef5139c",
     )
-    for row in (static, youtube):
-        stats, _notion, metricool, _media, slack, prepare_mock, upload = _run(
-            tmp_path, row, dry=False, prepare=prepare
-        )
-        assert stats["scheduled"] == 1
-        body = metricool.create_scheduled_post.call_args.args[0]
-        assert "videoThumbnailUrl" not in body
-        prepare_mock.assert_not_called()
-        upload.assert_not_called()
-        assert "missing_hook" not in _reasons(slack)
+    stats, notion, metricool, media, slack, prepare_mock, upload = _run(
+        tmp_path, youtube, dry=False, prepare=prepare
+    )
+    assert stats["scheduled"] == 0
+    assert stats["skipped"] == 1
+    media.assert_not_called()
+    metricool.create_scheduled_post.assert_not_called()
+    notion.set_status.assert_not_called()
+    prepare_mock.assert_not_called()
+    upload.assert_not_called()
+    assert "missing_hook" in _reasons(slack)
 
 
 def test_require_cover_false_schedules_reel_without_thumbnail(tmp_path):
