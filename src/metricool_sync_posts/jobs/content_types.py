@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import unicodedata
 from datetime import datetime
 from typing import Any
 
@@ -12,22 +13,35 @@ from metricool_sync_posts.timeutil import iso_metricool
 logger = logging.getLogger(__name__)
 
 
+def fold_text(value: str | None) -> str:
+    """Lowercase and strip accents so 'estática' and 'estatica' compare equal."""
+    raw = (value or "").strip().lower()
+    decomposed = unicodedata.normalize("NFD", raw)
+    return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
+
+
 def is_trials_reel(title: str) -> bool:
-    return "trials" in title.lower()
+    return "trials" in fold_text(title)
+
+
+def is_miniatura_type(content_type: str | None) -> bool:
+    """Thumbnail rows (Miniatura/Miniaturas) are not standalone posts."""
+    return "miniatura" in fold_text(content_type)
 
 
 def infer_instagram_type(title: str, content_type: str | None) -> str:
-    ct = (content_type or "").lower()
+    ct = fold_text(content_type)
     if "historia" in ct or "stories" in ct or "story" in ct:
         return "STORIES"
     if is_trials_reel(title):
         return "TRIAL_REEL"
     if "carrusel" in ct or "carousel" in ct:
         return "CAROUSEL"
+    # 'Piezas estática' / estático / estatica — before the reel/video default.
+    if any(token in ct for token in ("estatic", "static", "imagen", "foto")):
+        return "POST"
     if "reel" in ct or "video" in ct:
         return "REEL"
-    if "imagen" in ct or "static" in ct or "foto" in ct:
-        return "POST"
     return "REEL"
 
 
@@ -48,6 +62,10 @@ def build_schedule_body(
     network = normalize_channel(channel, title=title)
     if not network:
         raise ValueError(f"Unknown or ambiguous channel: {channel!r}")
+    if network == "linkedin":
+        raise ValueError("LinkedIn is not scheduled by this pipeline")
+    if is_miniatura_type(content_type):
+        raise ValueError(f"Miniatura rows are not scheduled as posts: {content_type!r}")
     body: dict[str, Any] = {
         "publicationDate": {
             "dateTime": iso_metricool(publication),

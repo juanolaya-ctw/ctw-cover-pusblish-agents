@@ -71,8 +71,9 @@ def test_invalid_uuid_before_clients(tmp_path):
         exercise(tmp_path, [row(TARGET)], target='not-a-uuid')
 
 
-def test_without_flag_unchanged_limit(tmp_path):
+def test_without_flag_fetches_full_week(tmp_path):
+    """Skips must not hide later rows behind SCHEDULE_MAX_PER_RUN at fetch time."""
     stats, notion, _, media = exercise(tmp_path, [row(TARGET), row(OTHER)], target=None)
     assert stats['scheduled'] == 2
-    assert notion.fetch_approved_current_week.call_args.kwargs['limit'] == 5
+    assert notion.fetch_approved_current_week.call_args.kwargs['limit'] is None
     assert media.call_count == 2

@@ -34,6 +34,8 @@ class NotionRepository:
             "content_type": settings.notion_prop_content_type,
             "miniatura": settings.notion_prop_miniatura,
             "protagonista": settings.notion_prop_protagonista,
+            "metricool_id": settings.notion_prop_metricool_id,
+            "metricool_uuid": settings.notion_prop_metricool_uuid,
         }
 
     def _query(

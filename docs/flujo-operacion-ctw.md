@@ -16,9 +16,11 @@
 
 ## Jobs
 
-1. **schedule** — Semana calendario Bogotá, máx. `SCHEDULE_MAX_PER_RUN` (default 5). Por defecto excluye canal **Newsletter** (`SCHEDULE_EXCLUDE_CHANNELS`). Filtros CLI: `--only-date`, `--exclude-channel` (se suman al env).
-2. **confirm_published** — Programado ±7 días → Publicado si Metricool publicó.
-3. **sync_dates** — Alinea `Publicación` Notion vs Metricool (±1 min).
+1. **schedule** — Semana calendario Bogotá. `SCHEDULE_MAX_PER_RUN` (default 5) cuenta creaciones; una fila omitida o duplicada no gasta cupo. Siempre excluye **Newsletter**, **IG Nico** y cualquier Canal que sea solo LinkedIn. Una fila con varias redes quita LinkedIn. No reprograma fechas pasadas. Si la pieza ya está en Metricool, no crea otra y alinea Notion a Programado o Publicado. Sin media, o tipo Miniatura, se omite. Filtros CLI: `--only-date`, `--exclude-channel`, `--only-page-id`.
+2. **confirm_published** — Programado ±7 días → Publicado solo si todos los `providers[].status` son `PUBLISHED`, o si el post ya no está en el scheduler y la hora pasó (margen 30 min). `ERROR` se reporta y no cambia el estado. `PENDING` se queda.
+3. **sync_dates** — Notion manda la fecha. Empareja por id/uuid de Metricool si la fila lo tiene, si no por caption/título dentro de ±7 días, aunque la hora no coincida.
+
+No usar `METRICOOL_BLOG_ID` `7255578` ni `7272512`. `--dry-run` no escribe en Metricool, Notion, media pública ni Slack.
 
 ## Archivo Final
 

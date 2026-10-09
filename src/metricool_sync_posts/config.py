@@ -56,9 +56,23 @@ class Settings(BaseSettings):
     enable_schedule: bool = Field(default=False, alias="ENABLE_SCHEDULE")
     schedule_max_per_run: int = Field(default=5, alias="SCHEDULE_MAX_PER_RUN")
     schedule_exclude_channels: str = Field(
-        default="Newsletter",
+        default="Newsletter,IG Nico",
         alias="SCHEDULE_EXCLUDE_CHANNELS",
-        description="Comma-separated Canal values skipped by schedule (manual Canales workflow)",
+        description=(
+            "Comma-separated Canal values skipped by schedule. "
+            "Newsletter and IG Nico are also hardcoded. "
+            "Any LinkedIn-only Canal is always excluded."
+        ),
+    )
+    notion_prop_metricool_id: str = Field(
+        default="",
+        alias="NOTION_PROP_METRICOOL_ID",
+        description="Optional Notion property storing the Metricool post id",
+    )
+    notion_prop_metricool_uuid: str = Field(
+        default="",
+        alias="NOTION_PROP_METRICOOL_UUID",
+        description="Optional Notion property storing the Metricool post uuid",
     )
     confirm_max_per_run: int = Field(default=20, alias="CONFIRM_MAX_PER_RUN")
     sync_dates_max_per_run: int = Field(default=20, alias="SYNC_DATES_MAX_PER_RUN")

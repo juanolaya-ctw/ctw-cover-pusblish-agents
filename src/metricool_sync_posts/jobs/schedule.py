@@ -16,18 +16,26 @@ from metricool_sync_posts.cover.attach import (
 )
 from metricool_sync_posts.cover.bridge import prepare_cover_for_publish_task
 from metricool_sync_posts.jobs.common import caption_for_row, publication_dt
-from metricool_sync_posts.jobs.content_types import build_schedule_body, infer_instagram_type
-from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard, exact_existing_post
+from metricool_sync_posts.jobs.content_types import (
+    build_schedule_body,
+    infer_instagram_type,
+    is_miniatura_type,
+)
+from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
 from metricool_sync_posts.media.final_file import FinalFileKind, classify_final_file
 from metricool_sync_posts.media.resolve import prepare_media_urls_for_metricool
 from metricool_sync_posts.metricool.channels import normalize_channel
 from metricool_sync_posts.metricool.client import MetricoolClient
+from metricool_sync_posts.metricool.matching import find_existing_piece, post_state
 from metricool_sync_posts.notion.client import NotionRepository
 from metricool_sync_posts.slack.dedupe import DedupeStore
 from metricool_sync_posts.slack.notify import notify_slack
 from metricool_sync_posts.timeutil import calendar_week_bounds, now_in, publication_sort_key
 
 logger = logging.getLogger(__name__)
+
+# Business rules, not just defaults: Newsletter stays manual, IG Nico is another brand.
+_ALWAYS_EXCLUDED = frozenset({"Newsletter", "IG Nico"})
 
 
 def _publication_on_date(row, tz_name: str, target: date) -> bool:
@@ -41,7 +49,6 @@ def _norm_channel(name: str | None) -> str:
     """Normalize Canal labels for exclude matching (case/space insensitive)."""
     if not name:
         return ""
-    # Collapse unicode spaces / NBSP and trim
     collapsed = re.sub(r"[\s\u00a0]+", " ", name).strip()
     return collapsed.casefold()
 
@@ -51,6 +58,79 @@ def _channel_is_excluded(channel: str | None, exclude: frozenset[str]) -> bool:
         return False
     norms = {_norm_channel(x) for x in exclude if _norm_channel(x)}
     return _norm_channel(channel) in norms
+
+
+def _is_linkedin_only_canal(channel: str | None) -> bool:
+    """True for Canal values that are LinkedIn and nothing else."""
+    if not channel or "linkedin" not in _norm_channel(channel):
+        return False
+    return normalize_channel(channel) == "linkedin"
+
+
+def _row_excluded(channel: str | None, exclude: frozenset[str]) -> bool:
+    return _channel_is_excluded(channel, exclude) or _is_linkedin_only_canal(channel)
+
+
+def _as_post_list(raw: object) -> list[dict]:
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)]
+    return []
+
+
+def _reconcile_existing(
+    *,
+    settings: Settings,
+    notion: NotionRepository,
+    dedupe: DedupeStore,
+    row,
+    post: dict,
+    dry: bool,
+) -> None:
+    """Point Notion at the post that already exists. Never creates another one."""
+    state = post_state(post)
+    post_id = post.get("id") or post.get("postId")
+    if state == "ERROR":
+        logger.error(
+            "BLOCKER: Metricool post %s for %s has a provider ERROR; left as %s",
+            post_id,
+            row.page_id,
+            row.status,
+        )
+        notify_slack(
+            webhook_url=settings.slack_webhook_url,
+            channel=settings.slack_channel,
+            dedupe=dedupe,
+            notion_page_id=row.page_id,
+            reason="metricool_duplicate_error",
+            message=(
+                f"BLOCKER: existing Metricool post {post_id} for {row.url} "
+                "has a provider ERROR; not created again and Notion was not changed"
+            ),
+            dry_run=dry,
+        )
+        return
+    if state == "PUBLISHED":
+        target = settings.notion_status_published
+    else:
+        # PENDING / SCHEDULED / UNKNOWN still sitting in the calendar.
+        target = settings.notion_status_scheduled
+    if dry:
+        logger.info(
+            "[dry-run] Would set Notion %s to %s (existing Metricool %s %s)",
+            row.page_id,
+            target,
+            post_id,
+            state,
+        )
+        return
+    notion.set_status(row.page_id, target, dry_run=False)
+    logger.info(
+        "Existing Metricool post %s (%s) for %s; Notion set to %s",
+        post_id,
+        state,
+        row.page_id,
+        target,
+    )
 
 
 def run_schedule(
@@ -64,7 +144,7 @@ def run_schedule(
     # Validate before opening clients or running any pipeline step.
     target_page = str(UUID(only_page_id)) if only_page_id is not None else None
     dry = settings.dry_run if dry_run is None else dry_run
-    stats = {"queried": 0, "scheduled": 0, "skipped": 0, "errors": 0}
+    stats = {"queried": 0, "scheduled": 0, "skipped": 0, "errors": 0, "reconciled": 0}
 
     if not settings.enable_schedule:
         logger.warning("Schedule job disabled (ENABLE_SCHEDULE=false). Exiting.")
@@ -82,12 +162,8 @@ def run_schedule(
 
     now = now_in(settings.timezone)
     week_start, week_end = calendar_week_bounds(now, settings.timezone)
-    fetch_limit = (
-        100 if only_publication_date is not None else settings.schedule_max_per_run
-    )
-    rows = notion.fetch_approved_current_week(
-        week_start, week_end, limit=None if target_page else fetch_limit
-    )
+    # Whole week, then cap successful creates. Skips must not eat the fetch window.
+    rows = notion.fetch_approved_current_week(week_start, week_end, limit=None)
     if target_page:
         rows = [r for r in rows if str(UUID(r.page_id)) == target_page]
         if len(rows) != 1:
@@ -99,14 +175,14 @@ def run_schedule(
     exclude = (
         settings.schedule_exclude_channels_set()
         | (exclude_channels or frozenset())
-        | frozenset({"Newsletter", "LinkedIn Majo"})
+        | _ALWAYS_EXCLUDED
     )
     if exclude:
         before = len(rows)
         kept = []
         dropped: list[str] = []
         for r in rows:
-            if _channel_is_excluded(r.channel, exclude):
+            if _row_excluded(r.channel, exclude):
                 dropped.append(f"{(r.channel or '').strip() or '?'}:{r.page_id[:8]}")
                 continue
             kept.append(r)
@@ -138,18 +214,40 @@ def run_schedule(
     )
 
     guard = ScheduleGuard(settings.media_work_dir.parent / "schedule-guard.sqlite3")
+    # --only-date / --only-page-id still schedule the filtered set; the default
+    # run stops after SCHEDULE_MAX_PER_RUN successful creates.
+    cap: int | None
+    if only_publication_date is not None or target_page is not None:
+        cap = None
+    else:
+        cap = settings.schedule_max_per_run
+
+    existing_posts: list[dict] = []
+    if rows:
+        try:
+            raw_posts = metricool.get_scheduled_posts(
+                week_start - timedelta(days=7),
+                week_end + timedelta(days=7),
+                extended_range=True,
+            )
+        except Exception:
+            logger.exception("Metricool duplicate lookup failed; not creating posts this run")
+            stats["errors"] += 1
+            metricool.close()
+            return stats
+        existing_posts = _as_post_list(raw_posts)
+        logger.info("Loaded %s Metricool posts for duplicate check", len(existing_posts))
+
     for row in rows:
         try:
             network = normalize_channel(row.channel, title=row.title)
+            if network == "linkedin" or _is_linkedin_only_canal(row.channel):
+                stats["skipped"] += 1
+                logger.warning("Skip %s: LinkedIn is not scheduled", row.page_id)
+                continue
             if not network:
                 stats["skipped"] += 1
                 logger.warning("Skip %s: unknown/ambiguous channel %r", row.page_id, row.channel)
-                continue
-            if not dry and guard.contains(settings.metricool_blog_id, row.page_id):
-                stats["skipped"] += 1
-                logger.warning(
-                    "Skip %s: prior schedule attempt; reconcile before retry", row.page_id
-                )
                 continue
             pub = publication_dt(row, settings.timezone)
             if pub is None:
@@ -164,29 +262,100 @@ def run_schedule(
                     dry_run=dry,
                 )
                 continue
+            caption = caption_for_row(notion, row)
+            if caption:
+                existing = find_existing_piece(
+                    existing_posts,
+                    caption=caption,
+                    title=row.title,
+                    network=network,
+                    tz_name=settings.timezone,
+                    notion_publication=pub,
+                    media_urls=[row.final_file_url] if row.final_file_url else None,
+                )
+                if existing:
+                    _reconcile_existing(
+                        settings=settings,
+                        notion=notion,
+                        dedupe=dedupe,
+                        row=row,
+                        post=existing,
+                        dry=dry,
+                    )
+                    stats["reconciled"] += 1
+                    continue
             now_local = now_in(settings.timezone)
             if pub < now_local:
-                shifted = now_local + timedelta(minutes=5)
+                stats["skipped"] += 1
                 logger.warning(
-                    "Publication %s is in the past; scheduling at %s for %s",
-                    pub,
-                    shifted,
+                    "Skip %s: publication %s is in the past; not rescheduled",
                     row.page_id,
+                    pub,
                 )
-                pub = shifted
-            caption = caption_for_row(notion, row)
+                notify_slack(
+                    webhook_url=settings.slack_webhook_url,
+                    channel=settings.slack_channel,
+                    dedupe=dedupe,
+                    notion_page_id=row.page_id,
+                    reason="past_publication_date",
+                    message=(
+                        f"Schedule skip: Publicación {pub.isoformat()} is in the past "
+                        f"for {row.url}; not moved to now"
+                    ),
+                    dry_run=dry,
+                )
+                continue
             if not caption:
                 stats["skipped"] += 1
                 logger.warning("Skip %s: empty caption", row.page_id)
                 continue
-            if not dry:
-                existing = metricool.get_scheduled_posts(
-                    pub - timedelta(minutes=1), pub + timedelta(minutes=1)
+            if is_miniatura_type(row.content_type):
+                stats["skipped"] += 1
+                logger.warning(
+                    "Skip %s: content type %r is a thumbnail, not a post",
+                    row.page_id,
+                    row.content_type,
                 )
-                if exact_existing_post(existing, caption, network, pub, settings.timezone):
-                    stats["skipped"] += 1
-                    logger.warning("Skip %s: exact Metricool candidate; reconcile", row.page_id)
-                    continue
+                notify_slack(
+                    webhook_url=settings.slack_webhook_url,
+                    channel=settings.slack_channel,
+                    dedupe=dedupe,
+                    notion_page_id=row.page_id,
+                    reason="miniatura_not_a_post",
+                    message=(
+                        f"Schedule skip: {row.content_type} is not scheduled "
+                        f"as a standalone post ({row.url})"
+                    ),
+                    dry_run=dry,
+                )
+                continue
+            file_ref = classify_final_file(row.final_file_url)
+            if file_ref.kind == FinalFileKind.EMPTY:
+                stats["skipped"] += 1
+                logger.warning("Skip %s: no Archivo Final media", row.page_id)
+                notify_slack(
+                    webhook_url=settings.slack_webhook_url,
+                    channel=settings.slack_channel,
+                    dedupe=dedupe,
+                    notion_page_id=row.page_id,
+                    reason="missing_media",
+                    message=f"Schedule skip: no media for {row.url}",
+                    dry_run=dry,
+                )
+                continue
+            if not dry and guard.contains(settings.metricool_blog_id, row.page_id):
+                stats["skipped"] += 1
+                logger.warning(
+                    "Skip %s: prior schedule attempt; reconcile before retry", row.page_id
+                )
+                continue
+            if cap is not None and stats["scheduled"] >= cap:
+                logger.info(
+                    "SCHEDULE_MAX_PER_RUN=%s reached; leaving remaining rows",
+                    cap,
+                )
+                break
+
             cover_enabled = (
                 network == "instagram"
                 and infer_instagram_type(row.title, row.content_type) in {"REEL", "TRIAL_REEL"}
@@ -205,7 +374,6 @@ def run_schedule(
                 if isinstance(raw, (bytes, bytearray)):
                     cover_bytes = bytes(raw)
 
-            file_ref = classify_final_file(row.final_file_url)
             youtube_existing = file_ref.kind == FinalFileKind.YOUTUBE
             media_urls: list[str] = []
             if row.final_file_url:
@@ -225,6 +393,20 @@ def run_schedule(
                     page_id=row.page_id,
                     dry_run=dry,
                 )
+
+            if not media_urls:
+                stats["skipped"] += 1
+                logger.warning("Skip %s: media resolved to nothing", row.page_id)
+                notify_slack(
+                    webhook_url=settings.slack_webhook_url,
+                    channel=settings.slack_channel,
+                    dedupe=dedupe,
+                    notion_page_id=row.page_id,
+                    reason="missing_media",
+                    message=f"Schedule skip: no media for {row.url}",
+                    dry_run=dry,
+                )
+                continue
 
             if (
                 cover_enabled
@@ -266,6 +448,8 @@ def run_schedule(
                     stats["skipped"] += 1
                     continue
                 metricool.create_scheduled_post(body)
+                # Status flips only after the create call returns. A failed create
+                # raises above and leaves Notion on Aprobado.
                 notion.set_status(row.page_id, settings.notion_status_scheduled, dry_run=False)
             stats["scheduled"] += 1
             notify_slack(

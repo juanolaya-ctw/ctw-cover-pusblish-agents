@@ -11,7 +11,10 @@ from metricool_sync_posts.jobs.schedule import (
 )
 
 
-def test_default_excludes_newsletter():
+def test_default_excludes_newsletter_and_ig_nico():
+    default = Settings.model_fields["schedule_exclude_channels"].default
+    assert "Newsletter" in default
+    assert "IG Nico" in default
     s = Settings(
         NOTION_TOKEN="x",
         NOTION_DATABASE_ID="y",
@@ -19,6 +22,7 @@ def test_default_excludes_newsletter():
         METRICOOL_USER_ID="1",
     )
     assert "Newsletter" in s.schedule_exclude_channels_set()
+    assert "IG Nico" in s.schedule_exclude_channels_set()
 
 
 def test_norm_channel_case_and_nbsp():

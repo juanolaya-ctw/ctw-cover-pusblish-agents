@@ -12,6 +12,7 @@ from notion_client import Client
 from notion_client.errors import APIResponseError
 
 from metricool_sync_posts.config import load_settings
+from metricool_sync_posts.metricool.client import FORBIDDEN_BLOG_IDS
 from metricool_sync_posts.timeutil import iso_metricool, now_in
 
 _PLACEHOLDER_NOTION = re.compile(
@@ -56,6 +57,12 @@ def _check_placeholders(settings) -> bool:
         ok = False
     if _PLACEHOLDER_USER_ID.match(settings.metricool_user_id.strip()):
         _fail("METRICOOL_USER_ID looks like a placeholder (use your numeric Metricool userId).")
+        ok = False
+    if str(settings.metricool_blog_id).strip() in FORBIDDEN_BLOG_IDS:
+        _fail(
+            f"METRICOOL_BLOG_ID {settings.metricool_blog_id} is another brand. "
+            "Colombia Tech is 5822365; do not use 7255578 or 7272512."
+        )
         ok = False
     return ok
 
@@ -109,8 +116,8 @@ def _ping_metricool(settings) -> bool:
     params = {
         "userId": settings.metricool_user_id,
         "blogId": settings.metricool_blog_id,
-        "from": iso_metricool(from_dt),
-        "to": iso_metricool(to_dt),
+        "start": iso_metricool(from_dt),
+        "end": iso_metricool(to_dt),
         "timezone": settings.metricool_timezone,
         "extendedRange": "true",
     }

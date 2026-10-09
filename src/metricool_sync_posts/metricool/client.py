@@ -11,9 +11,18 @@ from metricool_sync_posts.timeutil import iso_metricool
 
 logger = logging.getLogger(__name__)
 
+# Nicolás and María José brands. This pipeline only talks to Colombia Tech.
+FORBIDDEN_BLOG_IDS = frozenset({"7255578", "7272512"})
+
 
 class MetricoolClient:
     def __init__(self, settings: Settings) -> None:
+        blog_id = str(settings.metricool_blog_id).strip()
+        if blog_id in FORBIDDEN_BLOG_IDS:
+            raise RuntimeError(
+                f"Refusing Metricool blogId {blog_id}. "
+                "This pipeline only uses Colombia Tech (5822365)."
+            )
         self._s = settings
         self._http = httpx.Client(
             base_url=settings.metricool_base_url.rstrip("/"),
@@ -37,13 +46,21 @@ class MetricoolClient:
         *,
         extended_range: bool = True,
     ) -> list[dict[str, Any]]:
+        """GET /v2/scheduler/posts.
+
+        Swagger ``getCalendarReport`` filters with ``start`` and ``end``
+        (local ISO, no offset). ``from``/``to`` are not parameters: Metricool
+        ignores them and returns only the current day (probe 2026-10-09:
+        from/to → 11 posts on that day; start/end → 90 posts across the range).
+        """
         params = {
             **self._params(),
-            "from": iso_metricool(from_dt),
-            "to": iso_metricool(to_dt),
+            "start": iso_metricool(from_dt),
+            "end": iso_metricool(to_dt),
             "timezone": self._s.metricool_timezone,
         }
         if extended_range:
+            # Accepted by the live API alongside start/end; not in the swagger list.
             params["extendedRange"] = "true"
         resp = self._http.get("/v2/scheduler/posts", params=params)
         resp.raise_for_status()

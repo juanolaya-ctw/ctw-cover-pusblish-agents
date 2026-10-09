@@ -24,7 +24,7 @@ def test_channel_network(channel, network):
     assert normalize_channel(channel) == network
 
 
-@pytest.mark.parametrize('channel', ['YouTube', 'TikTok', 'LinkedIn'])
+@pytest.mark.parametrize('channel', ['YouTube', 'TikTok'])
 def test_cover_does_not_leak(channel):
     body = build_schedule_body(
         caption='x', publication=PUB, tz_name='America/Bogota', channel=channel,
@@ -39,6 +39,12 @@ def test_unknown_payload_rejected():
     with pytest.raises(ValueError):
         build_schedule_body(caption='x', publication=PUB, tz_name='America/Bogota',
                             channel='???', title='x', content_type='Video')
+
+
+def test_linkedin_payload_rejected():
+    with pytest.raises(ValueError, match='LinkedIn'):
+        build_schedule_body(caption='x', publication=PUB, tz_name='America/Bogota',
+                            channel='LinkedIn', title='x', content_type='Post')
 
 
 def test_miniatura_public_without_oauth():
@@ -105,7 +111,9 @@ def exercise(tmp_path, *, dry, notion_failure=False, rows=None):
 
 def test_schedule_dry_run_ig_miniatura(tmp_path):
     stats, mc, notion, builder, _ = exercise(tmp_path, dry=True)
-    assert stats == {'queried': 1, 'scheduled': 1, 'skipped': 0, 'errors': 0}
+    assert stats == {
+        'queried': 1, 'scheduled': 1, 'skipped': 0, 'errors': 0, 'reconciled': 0,
+    }
     assert builder.call_args.kwargs['cover_url'] == 'https://cdn.example/cover.jpg'
     mc.create_scheduled_post.assert_not_called()
     mc.normalize_media_url.assert_not_called()

@@ -49,9 +49,9 @@ Copia el `id` de la base **Parrilla de Contenido - CTW** a `NOTION_DATABASE_ID`.
 
 | Job | Comando | Descripción |
 |-----|---------|-------------|
-| **schedule** | `notion-aprobado-metricool` | Aprobado → Metricool → Notion **Programado** (semana calendario Bogotá, máx. 5). **Apagado por defecto** (`ENABLE_SCHEDULE=false`). |
-| **confirm_published** | `notion-publicado-metricool` | **Programado** ±7d → si Metricool publicó → **Publicado**. |
-| **sync_dates** | `notion-sync-fechas-metricool` | Alinea fecha Notion vs Metricool (±1 min); `updateScheduledPost` con cuerpo completo. |
+| **schedule** | `notion-aprobado-metricool` | Aprobado → Metricool → Notion **Programado** (semana calendario Bogotá). Máx. `SCHEDULE_MAX_PER_RUN` creaciones; omisiones y duplicados no gastan cupo. **Apagado por defecto** (`ENABLE_SCHEDULE=false`). |
+| **confirm_published** | `notion-publicado-metricool` | **Programado** ±7d → **Publicado** solo si cada provider de Metricool está `PUBLISHED`, o si el post ya no está en el scheduler y la hora pasó. `ERROR` no cambia el estado (bloqueo). `PENDING` se queda. |
+| **sync_dates** | `notion-sync-fechas-metricool` | Notion es la fecha fuente. Empareja por id/uuid guardado o por caption/título dentro de ±7 días (aunque la hora haya cambiado) y actualiza Metricool. |
 
 Cada job acepta `--dry-run`.
 
@@ -99,7 +99,13 @@ Ver [.env.example](.env.example). Principales:
 - `NOTION_TOKEN`, `NOTION_DATABASE_ID`
 - `METRICOOL_USER_TOKEN`, `METRICOOL_USER_ID`, `METRICOOL_BLOG_ID`
 - `ENABLE_SCHEDULE=false` (usa `--enable` para un run; o `true` en cron)
-- `SCHEDULE_EXCLUDE_CHANNELS=Newsletter` (mantener; Canales/LinkedIn Majo a mano)
+- `SCHEDULE_EXCLUDE_CHANNELS=Newsletter,IG Nico`. Esas dos también están fijas en código. Cualquier Canal que sea solo LinkedIn se excluye; en una fila multi-red se quita LinkedIn y se programa la otra red. No usar los blogs `7255578` ni `7272512`.
+- `SCHEDULE_MAX_PER_RUN` cuenta posts creados. Una fila pasada, duplicada, sin media, de tipo Miniatura, o de un canal excluido no consume cupo.
+- Fechas de publicación ya pasadas no se mueven a «ahora + 5 min»: se omiten y, si hay Slack, se avisan.
+- Si Metricool ya tiene la pieza (caption, título o media, en una ventana de ±7 días), no se crea otra. Notion pasa a **Programado** si sigue pendiente, o a **Publicado** si ya se publicó. Un provider en `ERROR` no cambia Notion.
+- Tipos en español: `Piezas estática` / `estático` / `estatica` salen como post estático, no como Reel. `Miniaturas` no se programa como post. Sin Archivo Final no se programa.
+- `--dry-run` no escribe: no crea ni actualiza Metricool, no cambia Notion, no sube media pública y no llama a Slack.
+- `GET /v2/scheduler/posts` usa `start` y `end` (swagger `getCalendarReport`). `from`/`to` se ignoran y la API devuelve solo el día de hoy.
 - `GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE` para carpetas Drive **y** descarga autenticada de archivos (API `alt=media`; no usar `uc?export=download` HTML). Compartir carpetas/archivos con el email de la SA.
 - URL pública Metricool: preferir `S3_*` si existe; `TRANSFER_SH` es **opcional** (a menudo timeout). Sin S3 el job usa litterbox → uguu.se automáticamente. Dropbox `dl=1` / YouTube pasan directo a normalize sin re-host.
 - ffmpeg: sistema `ffmpeg`/`FFMPEG_BIN`, o `pip install "metricool-sync-posts[ffmpeg]"` (imageio-ffmpeg), o Windows `winget install --id Gyan.FFmpeg -e`. Sin ffmpeg, `.mov` se intenta sin remux (log de aviso).
@@ -142,4 +148,4 @@ CI en GitHub Actions (opcional): requiere un PAT con scope `workflow`. Plantilla
 - Validar nombres exactos de propiedades Notion (Estado vs select)
 - Capturar cuerpo JSON real por tipo de post (reel, carrusel, TRIAL_REEL) vía inspector del planner
 - Probar normalize media con URLs Dropbox `.mov` y upload público
-- Confirmar parámetros exactos de `GET /v2/scheduler/posts` (nombres `from`/`to` vs documentación MCP)
+- `GET /v2/scheduler/posts` filtra con `start`/`end` (confirmado en swagger y en un probe de 2026-10-09: `from`/`to` devolvió 11 posts del día; `start`/`end` devolvió el rango)

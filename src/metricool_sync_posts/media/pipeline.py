@@ -47,13 +47,13 @@ def prepare_media_for_metricool(
     if not source_url:
         return None
     ext = extension_from_url(source_url)
-    work = settings.media_work_dir
-    work.mkdir(parents=True, exist_ok=True)
-    local = work / f"media{work_suffix}{ext}"
-
     if dry_run:
         logger.info("[dry-run] Would process media from %s", source_url)
         return source_url
+
+    work = settings.media_work_dir
+    work.mkdir(parents=True, exist_ok=True)
+    local = work / f"media{work_suffix}{ext}"
 
     # Dropbox (non-.mov): Metricool can usually fetch dl=1 / raw=1 — try before re-host.
     if is_dropbox_url(source_url) and ext != ".mov":
