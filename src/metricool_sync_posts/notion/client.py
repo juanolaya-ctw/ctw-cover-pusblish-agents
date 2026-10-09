@@ -129,6 +129,42 @@ class NotionRepository:
         )
         return rows[:limit]
 
+    def _fetch_status_in_window(
+        self, status_value: str, window_start, window_end
+    ) -> list[NotionPostRow]:
+        pub = window_publication_filter(
+            self._settings.notion_prop_publication, window_start, window_end
+        )
+        rows: list[NotionPostRow] = []
+        for status_f in self._status_filter_with_fallback(status_value):
+            filt = and_filter(status_f, pub)
+            try:
+                pages = self._query(filt)
+            except APIResponseError as exc:
+                if exc.code == "validation_error":
+                    continue
+                raise
+            for page in pages:
+                rows.append(row_from_page(page, self._prop_names))
+            if rows:
+                break
+        return rows
+
+    def fetch_linked_in_window(self, window_start, window_end) -> list[NotionPostRow]:
+        """Programado and Publicado rows that may already own a Metricool post."""
+        seen: set[str] = set()
+        rows: list[NotionPostRow] = []
+        for status in (
+            self._settings.notion_status_scheduled,
+            self._settings.notion_status_published,
+        ):
+            for row in self._fetch_status_in_window(status, window_start, window_end):
+                if row.page_id in seen:
+                    continue
+                seen.add(row.page_id)
+                rows.append(row)
+        return rows
+
     def page_body_plain_text(self, page_id: str) -> str:
         """Fallback caption from page blocks (first paragraphs only, capped)."""
         parts: list[str] = []

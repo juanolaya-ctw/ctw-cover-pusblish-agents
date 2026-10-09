@@ -1,10 +1,26 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 
 from metricool_sync_posts.config import Settings
 from metricool_sync_posts.notion.properties import NotionPostRow
 from metricool_sync_posts.timeutil import notion_date_to_datetime
+
+# Bracketed blanks and curly placeholders. TODO/TBD/XXX must be the uppercase
+# token: Spanish "todo" is a normal word, not a draft marker.
+_BRACKET_PLACEHOLDER = re.compile(r"\[[^\]\n]{1,40}\]|\{[^}\n]{1,40}\}")
+_LOREM_PLACEHOLDER = re.compile(r"lorem ipsum", re.IGNORECASE)
+_UPPER_MARKER = re.compile(r"\b(?:XXX+|TODO|TBD)\b")
+
+
+def caption_has_placeholder(caption: str) -> bool:
+    """True when the caption still has an obvious unfilled placeholder."""
+    if not caption:
+        return False
+    if _BRACKET_PLACEHOLDER.search(caption) or _LOREM_PLACEHOLDER.search(caption):
+        return True
+    return any(match.group(0).isupper() for match in _UPPER_MARKER.finditer(caption))
 
 
 def caption_for_row(notion, row: NotionPostRow) -> str:

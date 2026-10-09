@@ -12,6 +12,7 @@ import httpx
 import pytest
 
 from metricool_sync_posts.config import Settings
+from metricool_sync_posts.jobs.common import caption_has_placeholder
 from metricool_sync_posts.jobs.confirm_published import run_confirm_published
 from metricool_sync_posts.jobs.content_types import build_schedule_body
 from metricool_sync_posts.jobs.schedule import run_schedule
@@ -102,10 +103,11 @@ def _sched_row(**overrides):
     return SimpleNamespace(**base)
 
 
-def _run_schedule(tmp_path, rows, *, dry, posts=None, **settings_kw):
+def _run_schedule(tmp_path, rows, *, dry, posts=None, linked=None, **settings_kw):
     settings = _settings(tmp_path, **settings_kw)
     notion, metricool = MagicMock(), MagicMock()
     notion.fetch_approved_current_week.return_value = rows
+    notion.fetch_linked_in_window.return_value = linked or []
     metricool.get_scheduled_posts.return_value = posts or []
     metricool.create_scheduled_post.return_value = {"id": 99}
     with (
@@ -1022,9 +1024,17 @@ def test_slot_window_is_fifteen_minutes_and_same_network():
         tz_name=TZ,
         notion_publication=notion_at,
     )
-    assert find_duplicate_candidates([near], **kwargs) == [near]
+    # Same slot with a clearly different caption is not the same piece.
+    assert find_duplicate_candidates([near], **kwargs) == []
     assert find_duplicate_candidates([far], **kwargs) == []
     assert find_duplicate_candidates([other_net], **kwargs) == []
+    related = _post(
+        post_id=4,
+        text=caption + " y un cierre que metricool acorto",
+        when="2026-10-09T18:10:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    assert find_duplicate_candidates([related], **kwargs) == [related]
 
 
 _IA_CAPTION = (
@@ -1247,22 +1257,23 @@ def test_new_pieces_schedule_while_real_duplicates_reconcile(tmp_path):
 
 
 def test_ambiguous_duplicates_are_skipped_not_created(tmp_path):
+    caption = "cinco cosas que amamos de méxico y que el equipo repite en cada pieza"
     row = _sched_row(
         channel="Instagram",
-        title="The bridge: Sentarse con un fundador unicornio",
-        caption="copy distinto que no identifica ninguno de los dos posts por texto",
-        publication=datetime(2026, 10, 9, 18, 0, tzinfo=BOG),
+        title="The bridge México",
+        caption=caption,
+        publication=datetime(2026, 10, 10, 15, 0, tzinfo=BOG),
     )
     first = _post(
         post_id=11,
-        text="primer texto pendiente en el mismo horario de instagram hoy",
-        when="2026-10-09T18:00:00",
+        text=caption,
+        when="2026-10-10T15:00:00",
         providers=[{"network": "instagram", "status": "PENDING"}],
     )
     second = _post(
         post_id=12,
-        text="segundo texto pendiente tambien dentro de la ventana de quince minutos",
-        when="2026-10-09T18:10:00",
+        text=caption + " con un parrafo extra que no cambia la pieza",
+        when="2026-10-10T15:10:00",
         providers=[{"network": "instagram", "status": "PENDING"}],
     )
     stats, notion, metricool, media, slack = _run_schedule(
@@ -1275,3 +1286,114 @@ def test_ambiguous_duplicates_are_skipped_not_created(tmp_path):
     media.assert_not_called()
     notion.set_status.assert_not_called()
     assert slack.call_args.kwargs["reason"] == "ambiguous_duplicate"
+
+
+_OCDE_CAPTION = (
+    "Colombia quedó fuera del top 10 de gobierno digital de la OCDE y este carrusel "
+    "explica qué mide el ranking y por qué el país perdió puestos este año."
+)
+_TRUORA_CAPTION = (
+    "Truora ya hizo algo que muchas startups colombianas siguen sin animarse a copiar"
+)
+
+
+def test_placeholders_are_detected_without_flagging_spanish_todo():
+    assert caption_has_placeholder("Faltan [X] días para el episodio")
+    assert caption_has_placeholder("Entrevista con [NOMBRE] en el bridge")
+    assert caption_has_placeholder("El recurso está en [link]")
+    assert caption_has_placeholder("Publicar el {fecha} cuando esté listo")
+    assert caption_has_placeholder("Cierre XXX")
+    assert caption_has_placeholder("TODO: escribir el cierre")
+    assert caption_has_placeholder("fecha TBD")
+    assert caption_has_placeholder("lorem ipsum dolor sit amet")
+    assert not caption_has_placeholder("Todo el equipo publicó esta semana en Colombia")
+    assert not caption_has_placeholder(_OCDE_CAPTION)
+
+
+def test_placeholder_caption_is_skipped(tmp_path):
+    row = _sched_row(
+        page_id="3f099829-d217-81aa-aaaa-bbbbccccdddd",
+        channel="Instagram",
+        title="Building in public cap 1: The Bridge con MariRoms",
+        caption="Faltan [X] días para sentarnos con MariRoms y contar el primer capítulo.",
+        publication=datetime(2026, 10, 12, 18, 0, tzinfo=BOG),
+    )
+    stats, notion, metricool, media, slack = _run_schedule(tmp_path, [row], dry=False)
+    assert stats["scheduled"] == 0
+    assert stats["skipped"] == 1
+    assert stats["reconciled"] == 0
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    notion.set_status.assert_not_called()
+    assert slack.call_args.kwargs["reason"] == "placeholder_caption"
+
+
+def test_taken_slot_with_a_different_caption_is_not_reconciled(tmp_path):
+    """GovTech at 11-oct 15:00 must not inherit the Truora post that already owns that slot."""
+    govtech = _sched_row(
+        page_id="3f299829-d217-81cf-83ee-e66e8ef5139b",
+        channel="Instagram",
+        title="GovTech | Colombia cayó en el ranking de gobierno digital de la OCDE",
+        caption=_OCDE_CAPTION,
+        publication=datetime(2026, 10, 11, 15, 0, tzinfo=BOG),
+        content_type="Carrusel",
+    )
+    truora_post = _post(
+        post_id=387636704,
+        text=_TRUORA_CAPTION,
+        when="2026-10-11T15:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    truora_row = _sched_row(
+        page_id="3e699829-d217-80a7-9a14-e93f91cf2070",
+        channel="Instagram",
+        title="Carrusel: The bridge Truora",
+        caption=_TRUORA_CAPTION,
+        publication=datetime(2026, 10, 11, 12, 0, tzinfo=BOG),
+        status="Programado",
+        content_type="Carrusel",
+    )
+    assert caption_similarity(_OCDE_CAPTION, _TRUORA_CAPTION) < 0.3
+    stats, notion, metricool, media, slack = _run_schedule(
+        tmp_path, [govtech], dry=False, posts=[truora_post], linked=[truora_row]
+    )
+    assert stats["scheduled"] == 0
+    assert stats["reconciled"] == 0
+    assert stats["skipped"] == 1
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    notion.set_status.assert_not_called()
+    assert slack.call_args.kwargs["reason"] == "slot_conflict"
+
+
+def test_claimed_post_is_not_reused_for_a_later_row(tmp_path):
+    caption = "cinco cosas que amamos de méxico y que el equipo repite en cada pieza"
+    first = _sched_row(
+        page_id="3ed99829-d217-8098-bab4-da756040c155",
+        caption=caption,
+        publication=datetime(2026, 10, 10, 15, 0, tzinfo=BOG),
+    )
+    second = _sched_row(
+        page_id="3f199829-d217-81c0-a4b9-f4be3b9ac102",
+        channel="Instagram",
+        title="Otra fila en el mismo horario",
+        caption="Un texto distinto sobre impuestos y planes institucionales para empresas.",
+        publication=datetime(2026, 10, 10, 15, 5, tzinfo=BOG),
+    )
+    pending = _post(
+        post_id=42,
+        text=caption,
+        when="2026-10-10T15:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    stats, notion, metricool, media, slack = _run_schedule(
+        tmp_path, [first, second], dry=False, posts=[pending]
+    )
+    assert stats["reconciled"] == 1
+    assert stats["scheduled"] == 0
+    assert stats["skipped"] == 1
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    notion.set_status.assert_called_once_with(first.page_id, "Programado", dry_run=False)
+    reasons = [call.kwargs["reason"] for call in slack.call_args_list]
+    assert "slot_conflict" in reasons

@@ -18,6 +18,53 @@ SLOT_MATCH_MINUTES = 15
 _NEAR_SIMILARITY = 0.6
 _FAR_SIMILARITY = 0.85
 _FAR_DAY_GAP = 2
+# Same clock time is not the same piece when the copy is clearly unrelated.
+_SLOT_MIN_SIMILARITY = 0.3
+
+# Words that show up across unrelated CTW captions. They do not identify a piece.
+_GENERIC_TOKENS = frozenset(
+    {
+        "colombia",
+        "colombiana",
+        "colombianas",
+        "colombiano",
+        "colombianos",
+        "startup",
+        "startups",
+        "equipo",
+        "equipos",
+        "video",
+        "videos",
+        "carrusel",
+        "semana",
+        "contenido",
+        "empresa",
+        "empresas",
+        "marca",
+        "marcas",
+        "redes",
+        "social",
+        "historia",
+        "historias",
+        "instagram",
+        "youtube",
+        "tiktok",
+        "negocio",
+        "negocios",
+        "persona",
+        "personas",
+        "trabajo",
+        "diario",
+        "region",
+        "regional",
+        "expansion",
+        "modelo",
+        "conversacion",
+        "digital",
+        "publico",
+        "publica",
+    }
+)
 
 _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 _HASHTAG_RE = re.compile(r"[@#][\w]+", re.UNICODE)
@@ -572,6 +619,61 @@ def _wanted_from_args(network: str | None, networks: list[str] | None) -> set[st
     return set()
 
 
+def distinctive_tokens(text: str) -> set[str]:
+    """Content words that can tie an edited caption to the same piece."""
+    return {
+        token
+        for token in content_tokens(text)
+        if len(token) >= 6 and token not in _GENERIC_TOKENS
+    }
+
+
+def _slot_copy_similarity(left: str, right: str) -> float:
+    """Jaccard on content words. Ratio only when both sides are long enough to trust it."""
+    phrase_a = _content_phrase(left)
+    phrase_b = _content_phrase(right)
+    if not phrase_a or not phrase_b:
+        return 0.0
+    jac = _jaccard(set(phrase_a.split()), set(phrase_b.split()))
+    if min(len(phrase_a), len(phrase_b)) < 40:
+        return jac
+    return max(jac, SequenceMatcher(None, phrase_a, phrase_b).ratio())
+
+
+def _best_field_similarity(caption: str, title: str | None, post: dict[str, Any]) -> float:
+    best = 0.0
+    sources = [caption]
+    if title and title.strip():
+        sources.append(title)
+    for source in sources:
+        for field in _post_text_fields(post):
+            if field.strip():
+                best = max(best, _slot_copy_similarity(source, field))
+    return best
+
+
+def shares_distinctive_tokens(caption: str, title: str | None, post: dict[str, Any]) -> bool:
+    left = distinctive_tokens(caption) | distinctive_tokens(title or "")
+    if not left:
+        return False
+    right: set[str] = set()
+    for field in _post_text_fields(post):
+        right |= distinctive_tokens(field)
+    return bool(left & right)
+
+
+def slot_supports_same_piece(
+    post: dict[str, Any],
+    *,
+    caption: str,
+    title: str | None,
+) -> bool:
+    """Same slot counts only when the copy is not clearly a different piece."""
+    if _best_field_similarity(caption, title, post) >= _SLOT_MIN_SIMILARITY:
+        return True
+    return shares_distinctive_tokens(caption, title, post)
+
+
 def _same_publication_slot(
     post: dict[str, Any],
     notion_publication: datetime | None,
@@ -649,8 +751,10 @@ def _duplicate_score(
     nets = post_networks(post)
     if wanted and nets and not (wanted & nets):
         return 0.0
-    if _same_publication_slot(post, notion_publication, tz_name, wanted):
-        # Edited caption, same slot: still the same piece. Prefer skip over a second post.
+    same_slot = _same_publication_slot(post, notion_publication, tz_name, wanted)
+    related = slot_supports_same_piece(post, caption=caption, title=title)
+    if same_slot and related:
+        # Edited caption, same slot, and the copy still looks related.
         return 9.0
     if _copy_identifies_post(
         post,
@@ -697,6 +801,23 @@ def find_duplicate_candidates(
         if score > 0:
             hits.append(post)
     return hits
+
+
+def find_slot_occupants(
+    candidates: list[dict[str, Any]],
+    *,
+    network: str | None,
+    tz_name: str,
+    notion_publication: datetime | None,
+    networks: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Posts on the same network(s) within the slot window, whatever the caption says."""
+    wanted = _wanted_from_args(network, networks)
+    return [
+        post
+        for post in candidates
+        if _same_publication_slot(post, notion_publication, tz_name, wanted)
+    ]
 
 
 def find_existing_piece(

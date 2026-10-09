@@ -15,7 +15,11 @@ from metricool_sync_posts.cover.attach import (
     resolve_miniatura_url,
 )
 from metricool_sync_posts.cover.bridge import prepare_cover_for_publish_task
-from metricool_sync_posts.jobs.common import caption_for_row, publication_dt
+from metricool_sync_posts.jobs.common import (
+    caption_for_row,
+    caption_has_placeholder,
+    publication_dt,
+)
 from metricool_sync_posts.jobs.content_types import (
     build_schedule_body,
     infer_instagram_type,
@@ -26,7 +30,11 @@ from metricool_sync_posts.media.final_file import FinalFileKind, classify_final_
 from metricool_sync_posts.media.resolve import prepare_media_urls_for_metricool
 from metricool_sync_posts.metricool.channels import canal_labels, normalize_channel, plan_canals
 from metricool_sync_posts.metricool.client import MetricoolClient
-from metricool_sync_posts.metricool.matching import find_duplicate_candidates, post_state
+from metricool_sync_posts.metricool.matching import (
+    find_duplicate_candidates,
+    find_slot_occupants,
+    post_state,
+)
 from metricool_sync_posts.notion.client import NotionRepository
 from metricool_sync_posts.slack.dedupe import DedupeStore
 from metricool_sync_posts.slack.notify import notify_slack
@@ -90,6 +98,71 @@ def _as_post_list(raw: object) -> list[dict]:
     if isinstance(raw, list):
         return [item for item in raw if isinstance(item, dict)]
     return []
+
+
+def _post_key(post: dict) -> str:
+    return str(post.get("id") or post.get("postId") or "")
+
+
+def _linked_rows(notion, window_start, window_end) -> list:
+    """Programado/Publicado rows. A missing or unexpected client result means none."""
+    fetcher = getattr(notion, "fetch_linked_in_window", None)
+    if not callable(fetcher):
+        return []
+    try:
+        rows = fetcher(window_start, window_end)
+    except Exception:
+        logger.exception("Could not load Programado/Publicado rows for duplicate claims")
+        return []
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if getattr(row, "page_id", None)]
+
+
+def _claim_linked_posts(
+    *,
+    notion,
+    linked_rows: list,
+    approved_ids: set[str],
+    existing_posts: list[dict],
+    exclude: frozenset[str],
+    tz_name: str,
+) -> dict[str, str]:
+    """Metricool post id → Notion page that already owns it."""
+    claimed: dict[str, str] = {}
+    for linked in linked_rows:
+        if linked.page_id in approved_ids:
+            continue
+        try:
+            caption = caption_for_row(notion, linked)
+        except Exception:
+            logger.exception("Caption failed for linked row %s", linked.page_id)
+            continue
+        if not caption:
+            continue
+        plan = plan_canals(canal_labels(linked), exclude=exclude)
+        if plan.skip_nico or not plan.networks:
+            continue
+        hits = find_duplicate_candidates(
+            existing_posts,
+            caption=caption,
+            title=getattr(linked, "title", None),
+            network=None,
+            networks=list(plan.networks),
+            tz_name=tz_name,
+            notion_publication=publication_dt(linked, tz_name),
+            media_urls=[linked.final_file_url] if getattr(linked, "final_file_url", None) else None,
+        )
+        stored_id = getattr(linked, "metricool_id", None)
+        if stored_id:
+            for post in existing_posts:
+                if _post_key(post) == str(stored_id).strip():
+                    hits.append(post)
+        for hit in hits:
+            key = _post_key(hit)
+            if key and key not in claimed:
+                claimed[key] = linked.page_id
+    return claimed
 
 
 def _reconcile_existing(
@@ -253,6 +326,19 @@ def run_schedule(
         existing_posts = _as_post_list(raw_posts)
         logger.info("Loaded %s Metricool posts for duplicate check", len(existing_posts))
 
+    claimed = _claim_linked_posts(
+        notion=notion,
+        linked_rows=_linked_rows(
+            notion, week_start - timedelta(days=7), week_end + timedelta(days=7)
+        ),
+        approved_ids={row.page_id for row in rows},
+        existing_posts=existing_posts,
+        exclude=exclude,
+        tz_name=settings.timezone,
+    )
+    if claimed:
+        logger.info("Metricool posts already claimed by other Notion rows: %s", sorted(claimed))
+
     for row in rows:
         try:
             labels = canal_labels(row)
@@ -287,8 +373,21 @@ def run_schedule(
                 )
                 continue
             caption = caption_for_row(notion, row)
+            if caption and caption_has_placeholder(caption):
+                stats["skipped"] += 1
+                logger.warning("Skip %s: placeholder in caption", row.page_id)
+                notify_slack(
+                    webhook_url=settings.slack_webhook_url,
+                    channel=settings.slack_channel,
+                    dedupe=dedupe,
+                    notion_page_id=row.page_id,
+                    reason="placeholder_caption",
+                    message=f"Schedule skip: caption still has a placeholder for {row.url}",
+                    dry_run=dry,
+                )
+                continue
             if caption:
-                hits = find_duplicate_candidates(
+                raw_hits = find_duplicate_candidates(
                     existing_posts,
                     caption=caption,
                     title=row.title,
@@ -298,6 +397,7 @@ def run_schedule(
                     notion_publication=pub,
                     media_urls=[row.final_file_url] if row.final_file_url else None,
                 )
+                hits = [hit for hit in raw_hits if _post_key(hit) not in claimed]
                 if len(hits) > 1:
                     stats["skipped"] += 1
                     ids = [hit.get("id") or hit.get("postId") for hit in hits]
@@ -320,15 +420,47 @@ def run_schedule(
                     )
                     continue
                 if len(hits) == 1:
+                    chosen = hits[0]
                     _reconcile_existing(
                         settings=settings,
                         notion=notion,
                         dedupe=dedupe,
                         row=row,
-                        post=hits[0],
+                        post=chosen,
                         dry=dry,
                     )
+                    key = _post_key(chosen)
+                    if key:
+                        claimed[key] = row.page_id
                     stats["reconciled"] += 1
+                    continue
+                occupants = find_slot_occupants(
+                    existing_posts,
+                    network=None,
+                    networks=networks,
+                    tz_name=settings.timezone,
+                    notion_publication=pub,
+                )
+                if occupants:
+                    stats["skipped"] += 1
+                    ids = [_post_key(post) for post in occupants]
+                    logger.warning(
+                        "Skip %s: slot_conflict, Metricool posts %s",
+                        row.page_id,
+                        ids,
+                    )
+                    notify_slack(
+                        webhook_url=settings.slack_webhook_url,
+                        channel=settings.slack_channel,
+                        dedupe=dedupe,
+                        notion_page_id=row.page_id,
+                        reason="slot_conflict",
+                        message=(
+                            f"Schedule skip: {row.url} shares a publication slot with "
+                            f"Metricool {ids}, which is a different piece; not created"
+                        ),
+                        dry_run=dry,
+                    )
                     continue
             now_local = now_in(settings.timezone)
             if pub < now_local:
