@@ -1,8 +1,8 @@
-"""Detect Dropbox / Google Drive share URLs."""
+"""Detect Dropbox / Google Drive share URLs (no Dropbox OAuth / API)."""
 
 from __future__ import annotations
 
-from urllib.parse import parse_qs, urlparse, urlunparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 
 def is_dropbox_url(url: str) -> bool:
@@ -15,19 +15,72 @@ def is_google_drive_url(url: str) -> bool:
     return "drive.google.com" in host or "docs.google.com" in host
 
 
-def dropbox_direct_url(url: str) -> str:
-    """Prefer dl=1 for direct download."""
+def _dropbox_with_params(url: str, *, dl: str | None = None, raw: str | None = None) -> str:
     parsed = urlparse(url)
-    if "dropbox.com" not in parsed.netloc.lower():
-        return url
-    qs = parse_qs(parsed.query)
-    qs["dl"] = ["1"]
-    new_query = "&".join(f"{k}={v[0]}" for k, v in qs.items())
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+    # Drop preview params that break direct download
+    qs.pop("preview", None)
+    if dl is not None:
+        qs["dl"] = [dl]
+    if raw is not None:
+        qs["raw"] = [raw]
+    # Keep first value per key; preserve rlkey and other share tokens
+    flat = [(k, v[0]) for k, v in qs.items()]
+    new_query = urlencode(flat)
     return urlunparse(parsed._replace(query=new_query))
+
+
+def dropbox_direct_url(url: str) -> str:
+    """Prefer dl=1 (+ raw=1) for direct download from a public/share link."""
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    if "dropbox.com" not in host and "dropboxusercontent.com" not in host:
+        return url
+    # Already on content CDN: ensure dl/raw
+    if "dropboxusercontent.com" in host:
+        return _dropbox_with_params(url, dl="1", raw="1")
+    return _dropbox_with_params(url, dl="1", raw="1")
+
+
+def dropbox_download_candidates(url: str) -> list[str]:
+    """
+    Ordered URL variants to try without Dropbox API/OAuth.
+
+    Share links sometimes need dl=1, raw=1, or the dl.dropboxusercontent.com host.
+    """
+    if not is_dropbox_url(url):
+        return [url]
+
+    primary = dropbox_direct_url(url)
+    candidates: list[str] = [primary]
+
+    # dl=1 only (some older /s/ links dislike raw=1)
+    dl_only = _dropbox_with_params(url, dl="1")
+    if dl_only not in candidates:
+        candidates.append(dl_only)
+
+    parsed = urlparse(primary)
+    host = parsed.netloc.lower()
+    if "www.dropbox.com" in host or host == "dropbox.com":
+        # Classic rewrite used by many downloaders
+        rewritten = urlunparse(
+            parsed._replace(netloc="dl.dropboxusercontent.com")
+        )
+        # content host often ignores dl; still set raw=1
+        rewritten = _dropbox_with_params(rewritten, dl="1", raw="1")
+        if rewritten not in candidates:
+            candidates.append(rewritten)
+
+    return candidates
 
 
 def google_drive_direct_url(url: str) -> str:
     """Best-effort direct link for Drive file URLs."""
+    if "/drive/folders/" in url or "/folders/" in url:
+        raise ValueError(
+            "Archivo Final is a Google Drive folder link; use a direct file URL (/file/d/…) "
+            "or set GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE for folder resolution."
+        )
     if "/file/d/" in url:
         file_id = url.split("/file/d/")[1].split("/")[0]
         return f"https://drive.google.com/uc?export=download&id={file_id}"

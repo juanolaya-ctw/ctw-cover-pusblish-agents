@@ -25,13 +25,19 @@ def upload_public_url(settings: Settings, path: Path) -> str:
 
 def _upload_transfer_sh(settings: Settings, path: Path) -> str:
     url = settings.transfer_sh_url.rstrip("/") + "/" + path.name
-    with path.open("rb") as f:
-        resp = httpx.put(url, content=f.read(), timeout=300.0)
-    resp.raise_for_status()
-    # transfer.sh returns URL in body
-    link = resp.text.strip()
-    logger.info("Uploaded to transfer.sh: %s", link)
-    return link
+    data = path.read_bytes()
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            resp = httpx.put(url, content=data, timeout=300.0)
+            resp.raise_for_status()
+            link = resp.text.strip()
+            logger.info("Uploaded to transfer.sh: %s", link)
+            return link
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("transfer.sh attempt %s failed: %s", attempt + 1, exc)
+    raise RuntimeError(f"transfer.sh upload failed after retries: {last_exc}") from last_exc
 
 
 def _upload_s3(settings: Settings, path: Path) -> str:

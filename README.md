@@ -11,6 +11,7 @@ Marca de referencia: **Colombia Tech** (`METRICOOL_BLOG_ID=5822365`, zona `Ameri
 - Python 3.11+
 - `ffmpeg` / `ffprobe` en PATH (procesamiento de video/reels)
 - Tokens: Notion integration, Metricool API (`X-Mc-Auth`), opcional Slack webhook
+- **No hace falta** `DROPBOX_ACCESS_TOKEN` para programar: Archivo Final usa enlaces públicos/share de Dropbox (`dl=1`) o Google Drive (archivo o carpeta + service account)
 
 ## Instalación
 
@@ -20,7 +21,19 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
 # editar .env
+python -m metricool_sync_posts.cli.validate_env
 ```
+
+Guía paso a paso en Windows: Project store `docs/windows-local-setup.md`.
+
+### Validar credenciales
+
+```bash
+python -m metricool_sync_posts.cli.validate_env
+python -m metricool_sync_posts.cli.validate_env --skip-network   # solo placeholders
+```
+
+Sale con código **0** si Notion (`users/me` + data source) y Metricool (GET scheduler en ventana corta) responden bien.
 
 ### Descubrir `NOTION_DATABASE_ID`
 
@@ -46,6 +59,7 @@ Cada job acepta `--dry-run`.
 # Ejemplos
 notion-aprobado-metricool --dry-run
 notion-aprobado-metricool --enable          # ignora ENABLE_SCHEDULE=false una vez
+notion-aprobado-metricool --enable --only-date 2026-10-06 --exclude-channel "IG Nico"
 notion-publicado-metricool --dry-run
 notion-sync-fechas-metricool --dry-run
 ```
@@ -84,10 +98,14 @@ Ver [.env.example](.env.example). Principales:
 
 - `NOTION_TOKEN`, `NOTION_DATABASE_ID`
 - `METRICOOL_USER_TOKEN`, `METRICOOL_USER_ID`, `METRICOOL_BLOG_ID`
-- `ENABLE_SCHEDULE=false` (hasta reactivar producto)
+- `ENABLE_SCHEDULE=false` (usa `--enable` para un run; o `true` en cron)
+- `SCHEDULE_EXCLUDE_CHANNELS=Newsletter` (mantener; Canales/LinkedIn Majo a mano)
+- `GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE` solo si **Archivo Final** es carpeta Drive (compartir carpetas con esa cuenta). Enlaces de archivo Drive o Dropbox share **no** lo necesitan.
 - `TRANSFER_SH_ENABLED` / `S3_*` para URLs públicas temporales tras remux ffmpeg
-- `CTW_COVER_AGENT_PATH`, `DROPBOX_ACCESS_TOKEN`, `REQUIRE_COVER_FOR_SCHEDULE` (integración opcional con ctw-cover-agent; ver Project store `docs/integracion-cover-agent.md`)
+- Portadas IG / Dropbox API = **Fase 2 opcional**: dejar `CTW_COVER_AGENT_PATH` vacío; `REQUIRE_COVER_FOR_SCHEDULE=false`. `DROPBOX_ACCESS_TOKEN` solo si activas cover-agent (token ~4h). Media de schedule **no** usa OAuth Dropbox.
 - `SLACK_WEBHOOK_URL` (opcional, dedupe 6 h en `.data/slack-dedupe.json`)
+
+Go-live hoy (pasos Juan Windows): Project store `docs/go-live-today.md`.
 
 ## Estructura
 

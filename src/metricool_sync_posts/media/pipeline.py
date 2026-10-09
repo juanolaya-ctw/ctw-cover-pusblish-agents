@@ -34,6 +34,7 @@ def prepare_media_for_metricool(
     metricool: MetricoolClient,
     source_url: str,
     dry_run: bool,
+    work_suffix: str = "",
 ) -> str | None:
     """
     Return a URL suitable for Metricool normalize (original or remuxed/scaled upload).
@@ -43,7 +44,7 @@ def prepare_media_for_metricool(
     ext = extension_from_url(source_url)
     work = settings.media_work_dir
     work.mkdir(parents=True, exist_ok=True)
-    local = work / f"media{ext}"
+    local = work / f"media{work_suffix}{ext}"
 
     if dry_run:
         logger.info("[dry-run] Would process media from %s", source_url)
@@ -76,7 +77,15 @@ def prepare_media_for_metricool(
         public = upload_public_url(settings, processed)
         source_url = public
 
-    norm = metricool.normalize_media_url(source_url)
+    try:
+        norm = metricool.normalize_media_url(source_url)
+    except Exception as exc:
+        logger.warning("Metricool normalize failed for %s: %s", source_url[:80], exc)
+        return source_url
+    if not norm:
+        return source_url
+    if isinstance(norm, str):
+        return norm
     media_url = norm.get("url") or norm.get("normalizedUrl") or source_url
     media_id = norm.get("mediaId") or norm.get("id")
     if media_id:

@@ -3,23 +3,40 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, timedelta
+from zoneinfo import ZoneInfo
 
 from metricool_sync_posts.config import Settings
 from metricool_sync_posts.cover.attach import resolve_cover_url_for_metricool
 from metricool_sync_posts.cover.bridge import prepare_cover_for_publish_task
 from metricool_sync_posts.jobs.common import caption_for_row, publication_dt
 from metricool_sync_posts.jobs.content_types import build_schedule_body
-from metricool_sync_posts.media.pipeline import prepare_media_for_metricool
+from metricool_sync_posts.media.final_file import FinalFileKind, classify_final_file
+from metricool_sync_posts.media.resolve import prepare_media_urls_for_metricool
+from metricool_sync_posts.metricool.channels import normalize_channel
 from metricool_sync_posts.metricool.client import MetricoolClient
 from metricool_sync_posts.notion.client import NotionRepository
 from metricool_sync_posts.slack.dedupe import DedupeStore
 from metricool_sync_posts.slack.notify import notify_slack
-from metricool_sync_posts.timeutil import calendar_week_bounds, now_in
+from metricool_sync_posts.timeutil import calendar_week_bounds, now_in, publication_sort_key
 
 logger = logging.getLogger(__name__)
 
 
-def run_schedule(*, settings: Settings, dry_run: bool | None = None) -> dict[str, int]:
+def _publication_on_date(row, tz_name: str, target: date) -> bool:
+    pub = publication_dt(row, tz_name)
+    if pub is None:
+        return False
+    return pub.astimezone(ZoneInfo(tz_name)).date() == target
+
+
+def run_schedule(
+    *,
+    settings: Settings,
+    dry_run: bool | None = None,
+    only_publication_date: date | None = None,
+    exclude_channels: frozenset[str] | None = frozenset(),
+) -> dict[str, int]:
     dry = settings.dry_run if dry_run is None else dry_run
     stats = {"queried": 0, "scheduled": 0, "skipped": 0, "errors": 0}
 
@@ -37,8 +54,23 @@ def run_schedule(*, settings: Settings, dry_run: bool | None = None) -> dict[str
 
     now = now_in(settings.timezone)
     week_start, week_end = calendar_week_bounds(now, settings.timezone)
-    rows = notion.fetch_approved_current_week(
-        week_start, week_end, limit=settings.schedule_max_per_run
+    fetch_limit = (
+        100 if only_publication_date is not None else settings.schedule_max_per_run
+    )
+    rows = notion.fetch_approved_current_week(week_start, week_end, limit=fetch_limit)
+    if only_publication_date is not None:
+        tz = settings.timezone
+        rows = [r for r in rows if _publication_on_date(r, tz, only_publication_date)]
+    if exclude_channels:
+        rows = [
+            r for r in rows if (r.channel or "").strip() not in exclude_channels
+        ]
+        logger.info("Excluded channels filter: %s", sorted(exclude_channels))
+    rows.sort(
+        key=lambda r: (
+            publication_sort_key(r.publication, week_start),
+            r.page_id,
+        )
     )
     stats["queried"] = len(rows)
     logger.info(
@@ -63,12 +95,26 @@ def run_schedule(*, settings: Settings, dry_run: bool | None = None) -> dict[str
                     dry_run=dry,
                 )
                 continue
+            now_local = now_in(settings.timezone)
+            if pub < now_local:
+                shifted = now_local + timedelta(minutes=5)
+                logger.warning(
+                    "Publication %s is in the past; scheduling at %s for %s",
+                    pub,
+                    shifted,
+                    row.page_id,
+                )
+                pub = shifted
             caption = caption_for_row(notion, row)
             if not caption:
                 stats["skipped"] += 1
                 logger.warning("Skip %s: empty caption", row.page_id)
                 continue
-            cover_enabled = bool((settings.ctw_cover_agent_path or "").strip())
+            network = normalize_channel(row.channel, title=row.title) or "instagram"
+            cover_enabled = (
+                network == "instagram"
+                and bool((settings.ctw_cover_agent_path or "").strip())
+            )
             cover_result = None
             if cover_enabled:
                 cover_result = prepare_cover_for_publish_task(settings, row)
@@ -79,7 +125,11 @@ def run_schedule(*, settings: Settings, dry_run: bool | None = None) -> dict[str
                 if isinstance(raw, (bytes, bytearray)):
                     cover_bytes = bytes(raw)
 
-            if cover_enabled and settings.require_cover_for_schedule and not cover_bytes:
+            if (
+                cover_enabled
+                and settings.require_cover_for_schedule
+                and not cover_bytes
+            ):
                 stats["skipped"] += 1
                 logger.warning(
                     "Skip %s: REQUIRE_COVER_FOR_SCHEDULE and no cover_bytes from agent",
@@ -96,12 +146,15 @@ def run_schedule(*, settings: Settings, dry_run: bool | None = None) -> dict[str
                 )
                 continue
 
-            media_url = None
+            file_ref = classify_final_file(row.final_file_url)
+            youtube_existing = file_ref.kind == FinalFileKind.YOUTUBE
+            media_urls: list[str] = []
             if row.final_file_url:
-                media_url = prepare_media_for_metricool(
+                media_urls = prepare_media_urls_for_metricool(
                     settings=settings,
                     metricool=metricool,
-                    source_url=row.final_file_url,
+                    raw_archivo_final=row.final_file_url,
+                    content_type=row.content_type,
                     dry_run=dry,
                 )
 
@@ -122,8 +175,9 @@ def run_schedule(*, settings: Settings, dry_run: bool | None = None) -> dict[str
                 channel=row.channel,
                 title=row.title,
                 content_type=row.content_type,
-                media_url=media_url,
+                media_urls=media_urls,
                 cover_url=cover_url,
+                youtube_existing_video=youtube_existing,
             )
             if dry:
                 logger.info("[dry-run] Would schedule Metricool post for %s", row.page_id)
