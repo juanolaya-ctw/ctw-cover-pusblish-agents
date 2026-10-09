@@ -11,7 +11,10 @@ from metricool_sync_posts.jobs.schedule import (
 )
 
 
-def test_default_excludes_newsletter():
+def test_default_excludes_newsletter_and_ig_nico():
+    default = Settings.model_fields["schedule_exclude_channels"].default
+    assert "Newsletter" in default
+    assert "IG Nico" in default
     s = Settings(
         NOTION_TOKEN="x",
         NOTION_DATABASE_ID="y",
@@ -19,6 +22,7 @@ def test_default_excludes_newsletter():
         METRICOOL_USER_ID="1",
     )
     assert "Newsletter" in s.schedule_exclude_channels_set()
+    assert "IG Nico" in s.schedule_exclude_channels_set()
 
 
 def test_norm_channel_case_and_nbsp():
@@ -39,6 +43,7 @@ def _row(*, page_id: str, channel: str):
         url=f"https://notion.so/{page_id}",
         channel=channel,
         title=f"title-{page_id[:8]}",
+        cover_text="Hook publico",
         caption="caption",
         final_file_url="https://www.dropbox.com/s/x/file.mp4?dl=0",
         content_type="Reels",
@@ -66,6 +71,7 @@ def test_exclude_ig_nico_before_media_pipeline():
         ENABLE_SCHEDULE=True,
         DRY_RUN=True,
         TIMEZONE="America/Bogota",
+        REQUIRE_COVER_FOR_SCHEDULE=False,
     )
 
     notion = MagicMock()
@@ -93,10 +99,6 @@ def test_exclude_ig_nico_before_media_pipeline():
             return_value=datetime(2026, 10, 8, 12, 0, tzinfo=ZoneInfo("America/Bogota")),
         ),
         patch("metricool_sync_posts.jobs.schedule.notify_slack"),
-        patch(
-            "metricool_sync_posts.jobs.schedule.prepare_cover_for_publish_task",
-            return_value=None,
-        ),
         patch(
             "metricool_sync_posts.jobs.schedule.calendar_week_bounds",
             return_value=(

@@ -13,7 +13,7 @@ from metricool_sync_posts.jobs.common import (
 from metricool_sync_posts.jobs.content_types import merge_publication_date
 from metricool_sync_posts.metricool.client import MetricoolClient
 from metricool_sync_posts.metricool.matching import (
-    find_best_match,
+    find_sync_match,
     post_publication_datetime,
     post_state,
 )
@@ -49,12 +49,16 @@ def run_sync_dates(*, settings: Settings, dry_run: bool | None = None) -> dict[s
                 stats["skipped"] += 1
                 continue
             caption = caption_for_row(notion, row)
-            match = find_best_match(
+            match = find_sync_match(
                 notion_caption=caption,
+                notion_title=row.title,
                 notion_channel=row.channel,
                 notion_publication=pub,
                 candidates=mc_posts,
                 tz_name=settings.timezone,
+                metricool_id=getattr(row, "metricool_id", None),
+                metricool_uuid=getattr(row, "metricool_uuid", None),
+                window_days=settings.publication_window_days,
             )
             if not match:
                 stats["skipped"] += 1
@@ -62,6 +66,13 @@ def run_sync_dates(*, settings: Settings, dry_run: bool | None = None) -> dict[s
             if post_state(match) == "PUBLISHED":
                 stats["skipped"] += 1
                 logger.info("Skip date sync: already published %s", row.page_id)
+                continue
+            if post_state(match) == "ERROR":
+                stats["skipped"] += 1
+                logger.error(
+                    "BLOCKER: skip date sync for %s; Metricool provider ERROR",
+                    row.page_id,
+                )
                 continue
             mc_pub = post_publication_datetime(match, settings.timezone)
             if mc_pub and dates_equal_within_minutes(pub, mc_pub, minutes=1):
@@ -75,7 +86,7 @@ def run_sync_dates(*, settings: Settings, dry_run: bool | None = None) -> dict[s
             full_body = merge_publication_date(match, pub, settings.timezone)
             if dry:
                 logger.info(
-                    "[dry-run] Would update Metricool post %s publication to %s",
+                    "[dry-run] Would update Metricool post %s publication to %s (Notion source)",
                     post_id,
                     pub,
                 )

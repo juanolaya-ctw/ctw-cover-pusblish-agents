@@ -105,6 +105,10 @@ class NotionPostRow:
         content_type: str | None,
         miniatura_url: str | None,
         protagonistas: str,
+        metricool_id: str | None = None,
+        metricool_uuid: str | None = None,
+        channels: list[str] | None = None,
+        cover_text: str = "",
     ) -> None:
         self.page_id = page_id
         self.url = url
@@ -117,16 +121,63 @@ class NotionPostRow:
         self.content_type = content_type
         self.miniatura_url = miniatura_url
         self.protagonistas = protagonistas
+        self.metricool_id = metricool_id
+        self.metricool_uuid = metricool_uuid
+        self.cover_text = cover_text
+        if channels:
+            self.channels = [item.strip() for item in channels if item and item.strip()]
+        elif channel:
+            self.channels = [channel]
+        else:
+            self.channels = []
+
+
+def read_channel_names(props: dict[str, Any], name: str) -> list[str]:
+    """Every Canal value. Multi-select keeps all of them, in Notion order."""
+    multi = read_multi_select(props, name)
+    if multi:
+        return multi
+    single = read_select(props, name)
+    return [single] if single else []
+
+
+def _without_linkedin(names: list[str]) -> list[str]:
+    return [name for name in names if "linkedin" not in name.casefold()]
 
 
 def _first_channel(props: dict[str, Any], name: str) -> str | None:
-    multi = read_multi_select(props, name)
-    if len(multi) > 1:
-        # One destination per row; never silently select a different audience.
+    """Display label. Several networks stay together; LinkedIn is removed from the label."""
+    names = read_channel_names(props, name)
+    if len(names) > 1:
+        kept = _without_linkedin(names)
+        if len(kept) == 1:
+            return kept[0]
+        if not kept:
+            return names[0]
+        return ", ".join(kept)
+    if names:
+        return names[0]
+    return None
+
+
+def read_metricool_ref(props: dict[str, Any], name: str) -> str | None:
+    """Optional stored Metricool id/uuid (rich text, number, or url)."""
+    if not name:
         return None
-    if multi:
-        return multi[0]
-    return read_select(props, name)
+    text = read_rich_text(props, name)
+    if text:
+        return text
+    p = _prop(props, name)
+    if not p:
+        return None
+    if p.get("type") == "number" and p.get("number") is not None:
+        number = p["number"]
+        if isinstance(number, float) and number.is_integer():
+            return str(int(number))
+        return str(number)
+    if p.get("type") == "url" and p.get("url"):
+        return str(p["url"])
+    return None
 
 
 def _first_or_rich_title(props: dict[str, Any], name: str) -> str:
@@ -136,10 +187,13 @@ def _first_or_rich_title(props: dict[str, Any], name: str) -> str:
     return read_rich_text(props, name)
 
 
-def _first_content_type(props: dict[str, Any], name: str) -> str | None:
+def _content_type_label(props: dict[str, Any], name: str) -> str | None:
+    """Every Tipo value. 'Piezas estática' plus 'Historias' must stay a story."""
     multi = read_multi_select(props, name)
     if multi:
-        return multi[0]
+        parts = [part.strip() for part in multi if part and part.strip()]
+        if parts:
+            return ", ".join(parts)
     return read_select(props, name)
 
 
@@ -152,10 +206,14 @@ def row_from_page(page: dict[str, Any], settings_names: dict[str, str]) -> Notio
         status=read_select(props, settings_names["status"]),
         publication=read_date(props, settings_names["publication"]),
         channel=_first_channel(props, settings_names["channel"]),
+        channels=read_channel_names(props, settings_names["channel"]),
         caption=caption,
         final_file_url=read_url(props, settings_names["final_file"]),
         title=_first_or_rich_title(props, settings_names["title"]),
-        content_type=_first_content_type(props, settings_names["content_type"]),
+        content_type=_content_type_label(props, settings_names["content_type"]),
         miniatura_url=read_url(props, settings_names["miniatura"]),
         protagonistas=read_protagonistas_label(props, settings_names["protagonista"]),
+        metricool_id=read_metricool_ref(props, settings_names.get("metricool_id", "")),
+        metricool_uuid=read_metricool_ref(props, settings_names.get("metricool_uuid", "")),
+        cover_text=read_rich_text(props, settings_names.get("cover_text") or "Titulo"),
     )

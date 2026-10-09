@@ -2,18 +2,85 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 from metricool_sync_posts.config import Settings
+from metricool_sync_posts.logging_setup import redact_secrets
 from metricool_sync_posts.timeutil import iso_metricool
 
 logger = logging.getLogger(__name__)
 
+_ERROR_BODY_LIMIT = 2048
+
+# Nicolás and María José brands. This pipeline only talks to Colombia Tech.
+FORBIDDEN_BLOG_IDS = frozenset({"7255578", "7272512"})
+
+
+class MetricoolApiError(RuntimeError):
+    """HTTP 4xx/5xx from Metricool, with the response text for Slack and logs."""
+
+    def __init__(self, *, status: int, body: str, shape: dict[str, Any]) -> None:
+        self.status = status
+        self.body = body
+        self.shape = shape
+        snippet = " ".join((body or "").split())[:500]
+        super().__init__(f"Metricool {status}: {snippet or 'no response body'}")
+
+
+def request_shape(body: dict[str, Any] | None) -> dict[str, Any]:
+    """Networks, data-block types, media count/extensions, and publicationDate.
+
+    No caption, no auth header, no media URLs.
+    """
+    payload = body or {}
+    providers = payload.get("providers") or []
+    networks = [
+        item.get("network")
+        for item in providers
+        if isinstance(item, dict) and item.get("network")
+    ]
+    media = payload.get("media")
+    urls = [item for item in media if isinstance(item, str)] if isinstance(media, list) else []
+    return {
+        "networks": networks,
+        "instagramData": _block_type(payload, "instagramData"),
+        "tiktokData": _block_type(payload, "tiktokData"),
+        "youtubeData": _block_type(payload, "youtubeData"),
+        "media_count": len(urls),
+        "extensions": [_media_extension(url) for url in urls],
+        "publicationDate": payload.get("publicationDate"),
+    }
+
+
+def _media_extension(url: str) -> str:
+    suffix = Path(urlparse(url).path).suffix.lower()
+    return suffix or ".bin"
+
+
+def _block_type(body: dict[str, Any], key: str) -> str | None:
+    block = body.get(key)
+    if not isinstance(block, dict):
+        return None
+    kind = block.get("type")
+    if isinstance(kind, str) and kind.strip():
+        return kind
+    if key == "tiktokData" and "photoCoverIndex" in block:
+        return "photo"
+    return None
+
 
 class MetricoolClient:
     def __init__(self, settings: Settings) -> None:
+        blog_id = str(settings.metricool_blog_id).strip()
+        if blog_id in FORBIDDEN_BLOG_IDS:
+            raise RuntimeError(
+                f"Refusing Metricool blogId {blog_id}. "
+                "This pipeline only uses Colombia Tech (5822365)."
+            )
         self._s = settings
         self._http = httpx.Client(
             base_url=settings.metricool_base_url.rstrip("/"),
@@ -30,6 +97,21 @@ class MetricoolClient:
             "blogId": self._s.metricool_blog_id,
         }
 
+    def get_simple_profiles(self) -> list[dict[str, Any]]:
+        """GET /admin/simpleProfiles. One object per brand on this user."""
+        resp = self._http.get("/admin/simpleProfiles", params=self._params())
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        if isinstance(data, dict):
+            for key in ("data", "profiles", "items", "results"):
+                inner = data.get(key)
+                if isinstance(inner, list):
+                    return [item for item in inner if isinstance(item, dict)]
+        logger.warning("Unexpected simpleProfiles shape: %s", type(data))
+        return []
+
     def get_scheduled_posts(
         self,
         from_dt: datetime,
@@ -37,13 +119,21 @@ class MetricoolClient:
         *,
         extended_range: bool = True,
     ) -> list[dict[str, Any]]:
+        """GET /v2/scheduler/posts.
+
+        Swagger ``getCalendarReport`` filters with ``start`` and ``end``
+        (local ISO, no offset). ``from``/``to`` are not parameters: Metricool
+        ignores them and returns only the current day (probe 2026-10-09:
+        from/to → 11 posts on that day; start/end → 90 posts across the range).
+        """
         params = {
             **self._params(),
-            "from": iso_metricool(from_dt),
-            "to": iso_metricool(to_dt),
+            "start": iso_metricool(from_dt),
+            "end": iso_metricool(to_dt),
             "timezone": self._s.metricool_timezone,
         }
         if extended_range:
+            # Accepted by the live API alongside start/end; not in the swagger list.
             params["extendedRange"] = "true"
         resp = self._http.get("/v2/scheduler/posts", params=params)
         resp.raise_for_status()
@@ -74,7 +164,7 @@ class MetricoolClient:
 
     def create_scheduled_post(self, body: dict[str, Any]) -> dict[str, Any]:
         resp = self._http.post("/v2/scheduler/posts", params=self._params(), json=body)
-        resp.raise_for_status()
+        self._raise_for_status(resp, body)
         return resp.json()
 
     def update_scheduled_post(
@@ -90,8 +180,24 @@ class MetricoolClient:
         resp = self._http.put(f"/v2/scheduler/posts/{post_id}", params=params, json=body)
         if resp.status_code == 405:
             resp = self._http.patch(f"/v2/scheduler/posts/{post_id}", params=params, json=body)
-        resp.raise_for_status()
+        self._raise_for_status(resp, body)
         return resp.json()
+
+    def _raise_for_status(self, resp: httpx.Response, body: dict[str, Any]) -> None:
+        if resp.status_code < 400:
+            return
+        raw = resp.text or ""
+        logged = redact_secrets(raw)[:_ERROR_BODY_LIMIT]
+        shape = request_shape(body)
+        logger.error(
+            "Metricool %s %s failed status=%s response=%s request=%s",
+            resp.request.method,
+            resp.request.url.path,
+            resp.status_code,
+            logged,
+            shape,
+        )
+        raise MetricoolApiError(status=resp.status_code, body=logged, shape=shape)
 
     def close(self) -> None:
         self._http.close()

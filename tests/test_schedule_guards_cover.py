@@ -24,7 +24,7 @@ def test_channel_network(channel, network):
     assert normalize_channel(channel) == network
 
 
-@pytest.mark.parametrize('channel', ['YouTube', 'TikTok', 'LinkedIn'])
+@pytest.mark.parametrize('channel', ['YouTube', 'TikTok'])
 def test_cover_does_not_leak(channel):
     body = build_schedule_body(
         caption='x', publication=PUB, tz_name='America/Bogota', channel=channel,
@@ -39,6 +39,12 @@ def test_unknown_payload_rejected():
     with pytest.raises(ValueError):
         build_schedule_body(caption='x', publication=PUB, tz_name='America/Bogota',
                             channel='???', title='x', content_type='Video')
+
+
+def test_linkedin_payload_rejected():
+    with pytest.raises(ValueError, match='LinkedIn'):
+        build_schedule_body(caption='x', publication=PUB, tz_name='America/Bogota',
+                            channel='LinkedIn', title='x', content_type='Post')
 
 
 def test_miniatura_public_without_oauth():
@@ -80,7 +86,8 @@ def exercise(tmp_path, *, dry, notion_failure=False, rows=None):
                           status='Aprobado - Edición Final', publication=PUB,
                           channel='IG CTW', caption='fixture caption', title='fixture Reel',
                           content_type='Reel', final_file_url='https://cdn.example/video.mp4',
-                          miniatura_url='https://cdn.example/cover.jpg', protagonistas='')
+                          miniatura_url='https://cdn.example/cover.jpg', protagonistas='',
+                          cover_text='Hook de la portada')
     notion, metricool = MagicMock(), MagicMock()
     notion.fetch_approved_current_week.return_value = rows or [row]
     if notion_failure:
@@ -105,7 +112,9 @@ def exercise(tmp_path, *, dry, notion_failure=False, rows=None):
 
 def test_schedule_dry_run_ig_miniatura(tmp_path):
     stats, mc, notion, builder, _ = exercise(tmp_path, dry=True)
-    assert stats == {'queried': 1, 'scheduled': 1, 'skipped': 0, 'errors': 0}
+    assert stats == {
+        'queried': 1, 'scheduled': 1, 'skipped': 0, 'errors': 0, 'reconciled': 0,
+    }
     assert builder.call_args.kwargs['cover_url'] == 'https://cdn.example/cover.jpg'
     mc.create_scheduled_post.assert_not_called()
     mc.normalize_media_url.assert_not_called()
@@ -133,11 +142,13 @@ def test_manual_and_unknown_channels_before_media(tmp_path):
 
 
 def test_multi_channel_row_is_not_silently_first():
-    from metricool_sync_posts.notion.properties import _first_channel
+    from metricool_sync_posts.notion.properties import _first_channel, read_channel_names
 
-    assert _first_channel({'Canal': {'type': 'multi_select', 'multi_select': [
+    props = {'Canal': {'type': 'multi_select', 'multi_select': [
         {'name': 'Instagram'}, {'name': 'YouTube'},
-    ]}}, 'Canal') is None
+    ]}}
+    assert read_channel_names(props, 'Canal') == ['Instagram', 'YouTube']
+    assert _first_channel(props, 'Canal') == 'Instagram, YouTube'
 
 
 def test_still_photo_never_gets_video_thumbnail():

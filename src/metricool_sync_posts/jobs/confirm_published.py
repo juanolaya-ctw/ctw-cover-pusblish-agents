@@ -12,7 +12,11 @@ from metricool_sync_posts.jobs.common import (
     publication_dt,
 )
 from metricool_sync_posts.metricool.client import MetricoolClient
-from metricool_sync_posts.metricool.matching import find_best_match, post_state
+from metricool_sync_posts.metricool.matching import (
+    find_best_match,
+    find_sync_match,
+    post_state,
+)
 from metricool_sync_posts.notion.client import NotionRepository
 from metricool_sync_posts.slack.dedupe import DedupeStore
 from metricool_sync_posts.slack.notify import notify_slack
@@ -20,10 +24,27 @@ from metricool_sync_posts.timeutil import now_in, publication_window
 
 logger = logging.getLogger(__name__)
 
+# A post that left the scheduler counts as published only after this grace.
+_VANISHED_GRACE = timedelta(minutes=30)
+
+
+def _mark_published(notion: NotionRepository, settings: Settings, page_id: str, dry: bool) -> None:
+    if dry:
+        logger.info("[dry-run] Would mark Publicado %s", page_id)
+        return
+    notion.set_status(page_id, settings.notion_status_published, dry_run=False)
+
 
 def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) -> dict[str, int]:
     dry = settings.dry_run if dry_run is None else dry_run
-    stats = {"queried": 0, "published": 0, "pending": 0, "skipped": 0, "errors": 0}
+    stats = {
+        "queried": 0,
+        "published": 0,
+        "pending": 0,
+        "skipped": 0,
+        "errors": 0,
+        "blockers": 0,
+    }
 
     notion = NotionRepository(settings)
     metricool = MetricoolClient(settings)
@@ -60,38 +81,57 @@ def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) ->
                 candidates=mc_posts,
                 tz_name=settings.timezone,
             )
+            if match is None:
+                # Date drift (Notion 12:00 vs Metricool 15:00) must not look like
+                # a vanished post. Match on copy inside the fetched window.
+                match = find_sync_match(
+                    notion_caption=caption,
+                    notion_title=row.title,
+                    notion_channel=row.channel,
+                    notion_publication=pub,
+                    candidates=mc_posts,
+                    tz_name=settings.timezone,
+                    metricool_id=getattr(row, "metricool_id", None),
+                    metricool_uuid=getattr(row, "metricool_uuid", None),
+                    window_days=settings.publication_window_days,
+                )
             if not match:
-                stats["skipped"] += 1
-                logger.info("No Metricool match for Notion page %s", row.page_id)
+                if pub <= now - _VANISHED_GRACE:
+                    logger.info(
+                        "No Metricool post for %s and publication %s has passed; "
+                        "marking Publicado",
+                        row.page_id,
+                        pub,
+                    )
+                    _mark_published(notion, settings, row.page_id, dry)
+                    stats["published"] += 1
+                else:
+                    stats["skipped"] += 1
+                    logger.info("No Metricool match for Notion page %s", row.page_id)
                 continue
             state = post_state(match)
             if state == "ERROR":
-                stats["skipped"] += 1
+                stats["blockers"] += 1
                 notify_slack(
                     webhook_url=settings.slack_webhook_url,
                     channel=settings.slack_channel,
                     dedupe=dedupe,
                     notion_page_id=row.page_id,
                     reason="metricool_error",
-                    message=f"Metricool ERROR for {row.url}; left as Programado",
+                    message=(
+                        f"BLOCKER: Metricool provider ERROR for {row.url}; "
+                        "left as Programado"
+                    ),
                     dry_run=dry,
                 )
                 continue
-            if state == "PENDING":
-                stats["pending"] += 1
-                continue
-            if state in ("PUBLISHED", "UNKNOWN"):
-                # UNKNOWN: if publication date is in the past, treat as published
-                if state == "UNKNOWN" and pub > now - timedelta(minutes=30):
-                    stats["pending"] += 1
-                    continue
-                if dry:
-                    logger.info("[dry-run] Would mark Publicado %s", row.page_id)
-                else:
-                    notion.set_status(row.page_id, settings.notion_status_published, dry_run=False)
+            if state == "PUBLISHED":
+                _mark_published(notion, settings, row.page_id, dry)
                 stats["published"] += 1
-            else:
-                stats["pending"] += 1
+                continue
+            # PENDING, SCHEDULED, UNKNOWN: a found post is not confirmation.
+            # UNKNOWN used to be treated as published once the date was past.
+            stats["pending"] += 1
         except Exception:
             stats["errors"] += 1
             logger.exception("confirm_published failed for %s", row.page_id)

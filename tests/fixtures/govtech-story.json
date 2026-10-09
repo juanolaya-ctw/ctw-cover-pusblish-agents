@@ -1,0 +1,428 @@
+{
+ "notion_page": {
+  "object": "page",
+  "id": "3f099829-d217-8101-bfc5-dd93eb8976fb",
+  "created_time": "2026-10-05T19:08:00.000Z",
+  "last_edited_time": "2026-10-09T22:25:00.000Z",
+  "created_by": {
+   "object": "user",
+   "id": "208d872b-594c-81a8-9b28-0002fa31587e"
+  },
+  "last_edited_by": {
+   "object": "user",
+   "id": "3dcd872b-594c-8141-8d2c-000274f9da0d"
+  },
+  "cover": null,
+  "icon": null,
+  "parent": {
+   "type": "database_id",
+   "database_id": "29f99829-d217-80b4-9ab6-dc7f8f02d310"
+  },
+  "in_trash": false,
+  "is_archived": false,
+  "is_locked": false,
+  "properties": {
+   "Herramienta de creación": {
+    "id": "%3BqXI",
+    "type": "multi_select",
+    "multi_select": []
+   },
+   "Material 2": {
+    "id": "%3DRr%7C",
+    "type": "url",
+    "url": null
+   },
+   "Open Rate %": {
+    "id": "%3EECD",
+    "type": "number",
+    "number": null
+   },
+   "Publicación": {
+    "id": "BWR%5E",
+    "type": "date",
+    "date": {
+     "start": "2026-10-11T11:00:00.000-05:00",
+     "end": null,
+     "time_zone": null
+    }
+   },
+   "Caption": {
+    "id": "CoQ%5E",
+    "type": "rich_text",
+    "rich_text": [
+     {
+      "type": "text",
+      "text": {
+       "content": "¿Me pueden abrir un proceso fiscal por usar inteligencia artificial?\n\nEl 20 de octubre a las 5:00 p. m. los expertos en control fiscal responden qué revisan cuando una entidad pública implementa IA, quién asume las responsabilidades y cómo documentar las decisiones.\n\nCon Juan Camilo Zuluaga, Carlos Andrés Rodado Grijalba e Iván Darío Gómez Lee. Modera Danna Montoya.\n\nEncuentro virtual y gratuito de Colombia Tech y Estado X, antesala del GovTech Summit.\n\nInscríbete aquí → ",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "¿Me pueden abrir un proceso fiscal por usar inteligencia artificial?\n\nEl 20 de octubre a las 5:00 p. m. los expertos en control fiscal responden qué revisan cuando una entidad pública implementa IA, quién asume las responsabilidades y cómo documentar las decisiones.\n\nCon Juan Camilo Zuluaga, Carlos Andrés Rodado Grijalba e Iván Darío Gómez Lee. Modera Danna Montoya.\n\nEncuentro virtual y gratuito de Colombia Tech y Estado X, antesala del GovTech Summit.\n\nInscríbete aquí → ",
+      "href": null
+     },
+     {
+      "type": "text",
+      "text": {
+       "content": "https://luma.com/colombia-z9ns",
+       "link": {
+        "url": "https://luma.com/colombia-z9ns"
+       }
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "https://luma.com/colombia-z9ns",
+      "href": "https://luma.com/colombia-z9ns"
+     }
+    ]
+   },
+   "Seen Rate WhatsApp %": {
+    "id": "EwXS",
+    "type": "number",
+    "number": null
+   },
+   "Recurso Manychat": {
+    "id": "GoHm",
+    "type": "select",
+    "select": {
+     "id": "yR:h",
+     "name": "No recurso",
+     "color": "red"
+    }
+   },
+   "Archivo Final": {
+    "id": "I%3B%5D%5C",
+    "type": "url",
+    "url": "https://drive.google.com/drive/folders/1eoYrFe5o0StvKTaccynXg756GDWC1w4-?usp=sharing"
+   },
+   "Miniatura": {
+    "id": "I%3F%3A%7C",
+    "type": "url",
+    "url": null
+   },
+   "Eje de contenido": {
+    "id": "IW%3CF",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "84ee0e5b-8772-480e-90ac-2112f0bf914e",
+      "name": "Studio CT",
+      "color": "pink"
+     },
+     {
+      "id": "99a012d9-aa28-4621-9f76-06ba3053f612",
+      "name": "Webinars",
+      "color": "red"
+     }
+    ]
+   },
+   "Solicitudes Growth": {
+    "id": "JmAV",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Evento": {
+    "id": "MK%5Ct",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "R]<i",
+      "name": "GovTech",
+      "color": "blue"
+     }
+    ]
+   },
+   "Protagonista": {
+    "id": "O%3Dm%7B",
+    "type": "multi_select",
+    "multi_select": []
+   },
+   "Fecha Solicitud": {
+    "id": "QSJ%3B",
+    "type": "date",
+    "date": {
+     "start": "2026-10-05",
+     "end": null,
+     "time_zone": null
+    }
+   },
+   "Titulo": {
+    "id": "R%3E%5BC",
+    "type": "rich_text",
+    "rich_text": []
+   },
+   "Objetivo ": {
+    "id": "VBWU",
+    "type": "select",
+    "select": {
+     "id": "6d28117e-3d12-480b-9e78-9d3a80cb5746",
+     "name": "Conversión",
+     "color": "green"
+    }
+   },
+   "Categoria ": {
+    "id": "VdPI",
+    "type": "multi_select",
+    "multi_select": []
+   },
+   "Fecha pieza lista": {
+    "id": "Vj%3F%7C",
+    "type": "date",
+    "date": {
+     "start": "2026-10-07T09:00:00.000-05:00",
+     "end": null,
+     "time_zone": null
+    }
+   },
+   "Audiencia": {
+    "id": "ZsZG",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "e0475ebb-dffe-45c0-9d27-2295de99ef41",
+      "name": "Gobierno / Institucional",
+      "color": "pink"
+     }
+    ]
+   },
+   "Estado de la publicación": {
+    "id": "%5Ela%7D",
+    "type": "status",
+    "status": {
+     "id": "ffa2a470-481f-4613-ab9e-243d213f573d",
+     "name": "Aprobado - Edición Final",
+     "color": "green"
+    }
+   },
+   "Fecha Grabación": {
+    "id": "%60ced",
+    "type": "date",
+    "date": null
+   },
+   "Owner": {
+    "id": "b%3DXZ",
+    "type": "people",
+    "people": [
+     {
+      "object": "user",
+      "id": "238d872b-594c-8162-b295-0002d165492e",
+      "name": "Valentina Ulloa",
+      "avatar_url": null,
+      "type": "person",
+      "person": {
+       "email": "valentina@colombiatechweek.co",
+       "email_verified": true
+      }
+     }
+    ]
+   },
+   "Pain": {
+    "id": "bD%5BC",
+    "type": "multi_select",
+    "multi_select": []
+   },
+   "Etiqueta Fecha": {
+    "id": "lGS%3A",
+    "type": "select",
+    "select": {
+     "id": "^~r:",
+     "name": "Fecha Compromiso (Obligatoria)",
+     "color": "red"
+    }
+   },
+   "Inspiración": {
+    "id": "p%3AU%60",
+    "type": "url",
+    "url": null
+   },
+   "Canal ": {
+    "id": "raiI",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "c3dbffe1-2dff-4990-8f63-1c7ec3fdc8da",
+      "name": "Luma",
+      "color": "purple"
+     },
+     {
+      "id": "uYI{",
+      "name": "Instagram",
+      "color": "purple"
+     }
+    ]
+   },
+   "Material 1 ": {
+    "id": "sKO%60",
+    "type": "url",
+    "url": "https://drive.google.com/drive/u/0/folders/1EB-H3O1mlq7FxHyHO9lqjZKkutR3ImIe"
+   },
+   "Tipo de contenido ": {
+    "id": "w%5EbN",
+    "type": "multi_select",
+    "multi_select": [
+     {
+      "id": "6cde9833-fba0-4dfe-af37-08ab136dec9d",
+      "name": "Piezas estática",
+      "color": "default"
+     },
+     {
+      "id": "5e9e7cc8-034c-49ca-999f-62bf2ce54cae",
+      "name": "Historias",
+      "color": "gray"
+     }
+    ]
+   },
+   "Pilar editorial / Storytelling": {
+    "id": "%7DAXf",
+    "type": "select",
+    "select": null
+   },
+   "Brief": {
+    "id": "~sqB",
+    "type": "relation",
+    "relation": [],
+    "has_more": false
+   },
+   "Titulo de la publicación ": {
+    "id": "title",
+    "type": "title",
+    "title": [
+     {
+      "type": "text",
+      "text": {
+       "content": "GovTech — Convocatoria webinar «¿Me pueden abrir un proceso fiscal por usar IA?» (cuadrado Luma + historias)",
+       "link": null
+      },
+      "annotations": {
+       "bold": false,
+       "italic": false,
+       "strikethrough": false,
+       "underline": false,
+       "code": false,
+       "color": "default"
+      },
+      "plain_text": "GovTech — Convocatoria webinar «¿Me pueden abrir un proceso fiscal por usar IA?» (cuadrado Luma + historias)",
+      "href": null
+     }
+    ]
+   }
+  },
+  "url": "https://app.notion.com/p/GovTech-Convocatoria-webinar-Me-pueden-abrir-un-proceso-fiscal-por-usar-IA-cuadrado-Luma-hi-3f099829d2178101bfc5dd93eb8976fb",
+  "public_url": null,
+  "archived": false,
+  "request_id": "32d0b1d0-a25e-43e6-9f1b-1d5bee88f2cd"
+ },
+ "metricool_posts_11_to_13_oct": [
+  {
+   "id": 387636704,
+   "publicationDate": {
+    "dateTime": "2026-10-11T15:00:00",
+    "timezone": "America/Bogota"
+   },
+   "creationDate": {
+    "dateTime": "2026-10-04T00:07:00",
+    "timezone": "America/Bogota"
+   },
+   "text": "Truora ya hizo algo que muchas startups colombianas están intentando: convertir a México en parte de su operación regional.\n\nPero cruzar la frontera no es abrir una oficina y repetir el playbook de Colombia. Es entender el mercado, construir relaciones y encontrar los aliados correctos.\n\nThe Bridge nace para acelerar justamente esa parte.\n\nComenta MÉXICO y te enviamos la información para aplicar.\n#StartupsLatam #México #ExpansiónInternacional",
+   "firstCommentText": "",
+   "providers": [
+    {
+     "network": "instagram",
+     "status": "PENDING",
+     "detailedStatus": "Pending"
+    }
+   ],
+   "media": [
+    "https://static.metricool.com/planner/202610/5822365-file-1577704193363409315.jpeg",
+    "https://static.metricool.com/planner/202610/5822365-file-100638540471669150.jpeg",
+    "https://static.metricool.com/planner/202610/5822365-file-4110640262033040260.jpeg",
+    "https://static.metricool.com/planner/202610/5822365-file-15708996150208847208.jpeg",
+    "https://static.metricool.com/planner/202610/5822365-file-6703539183392234134.jpeg",
+    "https://static.metricool.com/planner/202610/5822365-file-12425678309958974447.jpeg",
+    "https://static.metricool.com/planner/202610/5822365-file-13971985193776849250.jpeg"
+   ],
+   "autoPublish": true,
+   "saveExternalMediaFiles": false,
+   "mediaAltText": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "shortener": false,
+   "draft": false,
+   "twitterData": {
+    "type": "POST"
+   },
+   "instagramData": {
+    "autoPublish": true,
+    "type": "POST",
+    "showReelOnFeed": true,
+    "isAiGenerated": false
+   },
+   "hasNotReadNotes": false,
+   "uuid": "3503050592408256754",
+   "creatorUserMail": "hello@colombiatechweek.co",
+   "creatorUserId": 4506278
+  },
+  {
+   "id": 392172565,
+   "publicationDate": {
+    "dateTime": "2026-10-12T11:00:00",
+    "timezone": "America/Bogota"
+   },
+   "creationDate": {
+    "dateTime": "2026-10-09T10:48:00",
+    "timezone": "America/Bogota"
+   },
+   "text": "",
+   "firstCommentText": "",
+   "providers": [
+    {
+     "network": "instagram",
+     "status": "PENDING",
+     "detailedStatus": "Pending"
+    }
+   ],
+   "media": [
+    "https://static.metricool.com/planner/202610/5822365-file-1647736074596361383.png"
+   ],
+   "autoPublish": true,
+   "saveExternalMediaFiles": false,
+   "mediaAltText": [
+    null
+   ],
+   "shortener": false,
+   "draft": false,
+   "twitterData": {
+    "type": "POST"
+   },
+   "instagramData": {
+    "autoPublish": true,
+    "type": "STORY",
+    "showReelOnFeed": true,
+    "isAiGenerated": false
+   },
+   "hasNotReadNotes": false,
+   "uuid": "6454806004329433898",
+   "creatorUserMail": "hello@colombiatechweek.co",
+   "creatorUserId": 4506278
+  }
+ ]
+}

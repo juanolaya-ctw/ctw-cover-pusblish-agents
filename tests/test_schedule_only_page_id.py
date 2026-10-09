@@ -23,6 +23,7 @@ def row(page_id, channel='Instagram'):
 def exercise(tmp_path, rows, target=TARGET, **kwargs):
     settings = Settings(NOTION_TOKEN='x', NOTION_DATABASE_ID='x', METRICOOL_USER_TOKEN='x',
                         METRICOOL_USER_ID='x', ENABLE_SCHEDULE=True,
+                        REQUIRE_COVER_FOR_SCHEDULE=False,
                         MEDIA_WORK_DIR=tmp_path / 'media', SLACK_DEDUPE_FILE=tmp_path / 'slack')
     notion, mc = MagicMock(), MagicMock()
     notion.fetch_approved_current_week.return_value = rows
@@ -54,11 +55,18 @@ def test_exact_target_beyond_normal_limit(tmp_path):
     mc.create_scheduled_post.assert_not_called()
 
 
-@pytest.mark.parametrize('rows', [[], [row(OTHER)], [row(TARGET), row(TARGET)],
-                                  [row(TARGET, 'LinkedIn Majo')]])
+@pytest.mark.parametrize('rows', [[], [row(OTHER)], [row(TARGET), row(TARGET)]])
 def test_zero_duplicate_or_excluded_fail_closed(tmp_path, rows):
     with pytest.raises(ValueError):
         exercise(tmp_path, rows)
+
+
+def test_only_page_linkedin_skips_with_no_connected_network(tmp_path):
+    stats, _notion, mc, media = exercise(tmp_path, [row(TARGET, 'LinkedIn Majo')])
+    assert stats['scheduled'] == 0
+    assert stats['skipped'] == 1
+    media.assert_not_called()
+    mc.create_scheduled_post.assert_not_called()
 
 
 def test_wrong_date_fail_closed(tmp_path):
@@ -71,8 +79,9 @@ def test_invalid_uuid_before_clients(tmp_path):
         exercise(tmp_path, [row(TARGET)], target='not-a-uuid')
 
 
-def test_without_flag_unchanged_limit(tmp_path):
+def test_without_flag_fetches_full_week(tmp_path):
+    """Skips must not hide later rows behind SCHEDULE_MAX_PER_RUN at fetch time."""
     stats, notion, _, media = exercise(tmp_path, [row(TARGET), row(OTHER)], target=None)
     assert stats['scheduled'] == 2
-    assert notion.fetch_approved_current_week.call_args.kwargs['limit'] == 5
+    assert notion.fetch_approved_current_week.call_args.kwargs['limit'] is None
     assert media.call_count == 2

@@ -3,7 +3,7 @@
 ## Marca Metricool
 
 - **Colombia Tech** (`METRICOOL_BLOG_ID=5822365`)
-- Redes conectadas: Instagram, LinkedIn, TikTok, YouTube
+- Redes que se programan: Instagram (`Canal Ig` = colombiatechoficial), TikTok, YouTube. LinkedIn está en la marca y no se publica. `fbBusinessId` no es Facebook.
 - Otras marcas en la cuenta (Nicolás, Maria José) no las usa este script salvo que cambies `METRICOOL_BLOG_ID`
 
 ## Estados Notion (Parrilla)
@@ -16,9 +16,11 @@
 
 ## Jobs
 
-1. **schedule** — Semana calendario Bogotá, máx. `SCHEDULE_MAX_PER_RUN` (default 5). Por defecto excluye canal **Newsletter** (`SCHEDULE_EXCLUDE_CHANNELS`). Filtros CLI: `--only-date`, `--exclude-channel` (se suman al env).
-2. **confirm_published** — Programado ±7 días → Publicado si Metricool publicó.
-3. **sync_dates** — Alinea `Publicación` Notion vs Metricool (±1 min).
+1. **schedule** — Semana calendario Bogotá. `SCHEDULE_MAX_PER_RUN` (default 5) cuenta creaciones; una fila omitida o duplicada no gasta cupo. Lee las redes conectadas en `simpleProfiles` (si falla: Instagram, TikTok, YouTube). Un Canal que no está conectado se quita y se registra; la fila solo se omite con `no_connected_network` cuando no queda ninguna. IG Nico omite la fila entera. Varios valores de Canal arman un solo post (`Youtube Shorts` → YouTube short). No reprograma fechas pasadas. Si la pieza ya está en Metricool (caption muy parecido, más estricto si la fecha difiere en más de 2 días, o misma red y misma hora ±15 min cuando el copy no es claramente distinto), no crea otra; palabras sueltas compartidas no cuentan. Si el horario ya tiene otra pieza, omite con `slot_conflict`. Un caption con placeholder no se programa. Si hay más de un candidato, omite y reporta. Un match único alinea Notion a Programado o Publicado. Sin media, o tipo Miniatura, se omite. Filtros CLI: `--only-date`, `--exclude-channel`, `--only-page-id`.
+2. **confirm_published** — Programado ±7 días → Publicado solo si todos los `providers[].status` son `PUBLISHED`, o si el post ya no está en el scheduler y la hora pasó (margen 30 min). `ERROR` se reporta y no cambia el estado. `PENDING` se queda.
+3. **sync_dates** — Notion manda la fecha. Empareja por id/uuid de Metricool si la fila lo tiene, si no por caption/título dentro de ±7 días, aunque la hora no coincida.
+
+No usar `METRICOOL_BLOG_ID` `7255578` ni `7272512`. `--dry-run` no escribe en Metricool, Notion, media pública ni Slack.
 
 ## Archivo Final
 
@@ -29,7 +31,6 @@
 - **YouTube URL:** programación sobre video existente (equipo debe pasarlo a público antes de la hora).
 - **Carrusel:** todos los images de la carpeta (máx. 10).
 
-## Portadas (Fase 2 — opcional)
+## Portadas de Reel
 
-Solo **Instagram** vía `CTW_COVER_AGENT_PATH` + opcional `DROPBOX_ACCESS_TOKEN` (API, expira ~4h).  
-Go-live: dejar path vacío y `REQUIRE_COVER_FOR_SCHEDULE=false` — **no bloquea** el schedule.
+Instagram `REEL` y `TRIAL_REEL` (también en un post de varias redes) necesitan portada antes de programarse. El texto de la portada es `Titulo` (`NOTION_PROP_COVER_TEXT`), no el título de la tarea. Vacío → `missing_hook`. `CTW_COVER_AGENT_PATH` prepara el PNG; si no está listo se omite con el motivo del agente. `REQUIRE_COVER_FOR_SCHEDULE=true` por defecto. El PNG se publica en un host de al menos 72 h (S3 o litterbox) y Metricool lo recibe en `videoThumbnailUrl`. `--dry-run` no sube archivos.
