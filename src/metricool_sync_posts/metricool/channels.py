@@ -12,6 +12,7 @@ NOTION_TO_METRICOOL: dict[str, str] = {
     "x": "twitter",
     "tiktok": "tiktok",
     "youtube": "youtube",
+    "yt": "youtube",
     "pinterest": "pinterest",
     "threads": "threads",
 }
@@ -23,7 +24,9 @@ def normalize_channel(notion_channel: str | None, *, title: str | None = None) -
     key = notion_channel.strip().lower()
     if key == "newsletter" and title and "linkedin" in title.lower():
         return "linkedin"
-    for token in key.replace("/", " ").split():
-        if token in NOTION_TO_METRICOOL:
-            return NOTION_TO_METRICOOL[token]
-    return NOTION_TO_METRICOOL.get(key)
+    networks = {
+        NOTION_TO_METRICOOL[token]
+        for token in key.replace("/", " ").split()
+        if token in NOTION_TO_METRICOOL
+    }
+    return next(iter(networks)) if len(networks) == 1 else None

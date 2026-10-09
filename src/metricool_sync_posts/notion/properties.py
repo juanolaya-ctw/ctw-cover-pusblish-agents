@@ -121,6 +121,9 @@ class NotionPostRow:
 
 def _first_channel(props: dict[str, Any], name: str) -> str | None:
     multi = read_multi_select(props, name)
+    if len(multi) > 1:
+        # One destination per row; never silently select a different audience.
+        return None
     if multi:
         return multi[0]
     return read_select(props, name)

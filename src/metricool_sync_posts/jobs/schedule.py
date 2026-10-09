@@ -9,10 +9,14 @@ from zoneinfo import ZoneInfo
 
 from metricool_sync_posts.build_info import build_label
 from metricool_sync_posts.config import Settings
-from metricool_sync_posts.cover.attach import resolve_cover_url_for_metricool
+from metricool_sync_posts.cover.attach import (
+    resolve_cover_url_for_metricool,
+    resolve_miniatura_url,
+)
 from metricool_sync_posts.cover.bridge import prepare_cover_for_publish_task
 from metricool_sync_posts.jobs.common import caption_for_row, publication_dt
-from metricool_sync_posts.jobs.content_types import build_schedule_body
+from metricool_sync_posts.jobs.content_types import build_schedule_body, infer_instagram_type
+from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard, exact_existing_post
 from metricool_sync_posts.media.final_file import FinalFileKind, classify_final_file
 from metricool_sync_posts.media.resolve import prepare_media_urls_for_metricool
 from metricool_sync_posts.metricool.channels import normalize_channel
@@ -81,7 +85,11 @@ def run_schedule(
     if only_publication_date is not None:
         tz = settings.timezone
         rows = [r for r in rows if _publication_on_date(r, tz, only_publication_date)]
-    exclude = exclude_channels or frozenset()
+    exclude = (
+        settings.schedule_exclude_channels_set()
+        | (exclude_channels or frozenset())
+        | frozenset({"Newsletter", "LinkedIn Majo"})
+    )
     if exclude:
         before = len(rows)
         kept = []
@@ -115,8 +123,20 @@ def run_schedule(
         [(r.channel, r.page_id[:8]) for r in rows],
     )
 
+    guard = ScheduleGuard(settings.media_work_dir.parent / "schedule-guard.sqlite3")
     for row in rows:
         try:
+            network = normalize_channel(row.channel, title=row.title)
+            if not network:
+                stats["skipped"] += 1
+                logger.warning("Skip %s: unknown/ambiguous channel %r", row.page_id, row.channel)
+                continue
+            if not dry and guard.contains(settings.metricool_blog_id, row.page_id):
+                stats["skipped"] += 1
+                logger.warning(
+                    "Skip %s: prior schedule attempt; reconcile before retry", row.page_id
+                )
+                continue
             pub = publication_dt(row, settings.timezone)
             if pub is None:
                 stats["skipped"] += 1
@@ -145,13 +165,24 @@ def run_schedule(
                 stats["skipped"] += 1
                 logger.warning("Skip %s: empty caption", row.page_id)
                 continue
-            network = normalize_channel(row.channel, title=row.title) or "instagram"
+            if not dry:
+                existing = metricool.get_scheduled_posts(
+                    pub - timedelta(minutes=1), pub + timedelta(minutes=1)
+                )
+                if exact_existing_post(existing, caption, network, pub, settings.timezone):
+                    stats["skipped"] += 1
+                    logger.warning("Skip %s: exact Metricool candidate; reconcile", row.page_id)
+                    continue
             cover_enabled = (
                 network == "instagram"
-                and bool((settings.ctw_cover_agent_path or "").strip())
+                and infer_instagram_type(row.title, row.content_type) in {"REEL", "TRIAL_REEL"}
+            )
+            cover_url = (
+                resolve_miniatura_url(row.miniatura_url, metricool=metricool, dry_run=dry)
+                if cover_enabled else None
             )
             cover_result = None
-            if cover_enabled:
+            if cover_enabled and not cover_url and settings.ctw_cover_agent_path:
                 cover_result = prepare_cover_for_publish_task(settings, row)
 
             cover_bytes = None
@@ -159,27 +190,6 @@ def run_schedule(
                 raw = cover_result.get("cover_bytes")
                 if isinstance(raw, (bytes, bytearray)):
                     cover_bytes = bytes(raw)
-
-            if (
-                cover_enabled
-                and settings.require_cover_for_schedule
-                and not cover_bytes
-            ):
-                stats["skipped"] += 1
-                logger.warning(
-                    "Skip %s: REQUIRE_COVER_FOR_SCHEDULE and no cover_bytes from agent",
-                    row.page_id,
-                )
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason="missing_cover",
-                    message=f"Schedule skip: missing cover for {row.url}",
-                    dry_run=dry,
-                )
-                continue
 
             file_ref = classify_final_file(row.final_file_url)
             youtube_existing = file_ref.kind == FinalFileKind.YOUTUBE
@@ -193,7 +203,6 @@ def run_schedule(
                     dry_run=dry,
                 )
 
-            cover_url = None
             if cover_bytes:
                 cover_url = resolve_cover_url_for_metricool(
                     settings=settings,
@@ -202,6 +211,27 @@ def run_schedule(
                     page_id=row.page_id,
                     dry_run=dry,
                 )
+
+            if (
+                cover_enabled
+                and settings.require_cover_for_schedule
+                and not cover_url
+            ):
+                stats["skipped"] += 1
+                logger.warning(
+                    "Skip %s: REQUIRE_COVER_FOR_SCHEDULE and no resolved cover URL",
+                    row.page_id,
+                )
+                notify_slack(
+                    webhook_url=settings.slack_webhook_url,
+                    channel=settings.slack_channel,
+                    dedupe=dedupe,
+                    notion_page_id=row.page_id,
+                    reason="missing_cover",
+                    message=f"Schedule skip: missing cover for {row.url}",
+                    dry_run=dry,
+                )
+                continue
 
             body = build_schedule_body(
                 caption=caption,
@@ -217,6 +247,10 @@ def run_schedule(
             if dry:
                 logger.info("[dry-run] Would schedule Metricool post for %s", row.page_id)
             else:
+                # Reserve BEFORE POST: timeout/Notion failure must never auto-resend.
+                if not guard.reserve(settings.metricool_blog_id, row.page_id):
+                    stats["skipped"] += 1
+                    continue
                 metricool.create_scheduled_post(body)
                 notion.set_status(row.page_id, settings.notion_status_scheduled, dry_run=False)
             stats["scheduled"] += 1
