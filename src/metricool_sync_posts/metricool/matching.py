@@ -978,6 +978,43 @@ def find_slot_occupants(
     ]
 
 
+def nearest_network_post(
+    candidates: list[dict[str, Any]],
+    *,
+    network: str | None,
+    tz_name: str,
+    notion_publication: datetime | None,
+    networks: list[str] | None = None,
+    thin_only: bool = False,
+) -> tuple[dict[str, Any] | None, float | None]:
+    """Closest same-network post by clock time, outside the ±15 min slot window.
+
+    Returns the post and the absolute gap in minutes. Used to audit a row the
+    slot guard does not block.
+    """
+    if notion_publication is None:
+        return None, None
+    wanted = _wanted_from_args(network, networks)
+    best: dict[str, Any] | None = None
+    best_delta: float | None = None
+    for post in candidates:
+        if thin_only and not post_copy_is_thin(post):
+            continue
+        post_nets = post_networks(post)
+        if wanted and post_nets and not (wanted & post_nets):
+            continue
+        if wanted and not post_nets:
+            continue
+        mc_date = post_publication_datetime(post, tz_name)
+        if mc_date is None:
+            continue
+        delta = abs((mc_date - notion_publication).total_seconds()) / 60
+        if best_delta is None or delta < best_delta:
+            best = post
+            best_delta = delta
+    return best, best_delta
+
+
 def find_existing_piece(
     candidates: list[dict[str, Any]],
     *,

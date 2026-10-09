@@ -30,6 +30,7 @@ from metricool_sync_posts.metricool.matching import (
     find_duplicate_candidates,
     find_slot_occupants,
     format_match_evidence,
+    nearest_network_post,
     post_copy_is_thin,
     post_state,
     slot_occupant_blocks,
@@ -95,6 +96,58 @@ def _as_post_list(raw: object) -> list[dict]:
 
 def _post_key(post: dict) -> str:
     return str(post.get("id") or post.get("postId") or "")
+
+
+def _gap_minutes(delta: float | None) -> str:
+    if delta is None:
+        return "-"
+    return str(int(round(delta)))
+
+
+def _log_slot_guard(
+    posts: list[dict],
+    *,
+    row,
+    networks: list[str],
+    tz_name: str,
+    notion_publication,
+    occupants: list[dict],
+    blocking: list[dict],
+) -> None:
+    """One line per candidate, including rows with nothing in the ±15 min slot."""
+    nearest, nearest_delta = nearest_network_post(
+        posts,
+        network=None,
+        networks=networks,
+        tz_name=tz_name,
+        notion_publication=notion_publication,
+    )
+    thin, thin_delta = nearest_network_post(
+        posts,
+        network=None,
+        networks=networks,
+        tz_name=tz_name,
+        notion_publication=notion_publication,
+        thin_only=True,
+    )
+    if not occupants:
+        reason = "none"
+    elif blocking:
+        reason = "slot_conflict"
+    else:
+        reason = "cleared"
+    logger.info(
+        "Slot Notion %s reason=%s occupants=%s notion=%s "
+        "nearest=%s delta_min=%s nearest_thin=%s thin_delta_min=%s",
+        row.page_id,
+        reason,
+        len(occupants),
+        notion_publication.isoformat(timespec="seconds"),
+        _post_key(nearest) if nearest else "-",
+        _gap_minutes(nearest_delta),
+        _post_key(thin) if thin else "-",
+        _gap_minutes(thin_delta),
+    )
 
 
 def _linked_rows(notion, window_start, window_end) -> list:
@@ -516,6 +569,15 @@ def run_schedule(
                         occupant, story=story, media_urls=notion_media
                     )
                 ]
+                _log_slot_guard(
+                    existing_posts,
+                    row=row,
+                    networks=networks,
+                    tz_name=settings.timezone,
+                    notion_publication=pub,
+                    occupants=occupants,
+                    blocking=blocking,
+                )
                 for occupant in occupants:
                     if occupant not in blocking:
                         logger.info(

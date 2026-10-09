@@ -1780,3 +1780,47 @@ def test_long_different_caption_still_conflicts_when_media_urls_differ(tmp_path)
     metricool.create_scheduled_post.assert_not_called()
     media.assert_not_called()
     assert slack.call_args.kwargs["reason"] == "slot_conflict"
+
+
+def test_govtech_story_payload_is_the_next_day_and_logs_no_occupant(tmp_path, caplog):
+    """Exact Notion page and Metricool posts from the 16f7874 dry-run.
+
+    Publicación is 2026-10-11 11:00 America/Bogota. Story 392172565 is
+    2026-10-12 11:00, so it is not a ±15 min occupant. The guard must say so.
+    """
+    payload = json.loads(
+        (Path(__file__).parent / "fixtures" / "govtech-story.json").read_text()
+    )
+    row = row_from_page(payload["notion_page"], _prop_names(_settings(tmp_path)))
+    posts = payload["metricool_posts_11_to_13_oct"]
+    assert row.page_id == "3f099829-d217-8101-bfc5-dd93eb8976fb"
+    assert row.publication == datetime(2026, 10, 11, 11, 0, tzinfo=BOG)
+    assert row.content_type == "Piezas estática, Historias"
+    assert row.channels == ["Luma", "Instagram"]
+    story = next(post for post in posts if post["id"] == 392172565)
+    assert story["text"] == ""
+    assert story["instagramData"]["type"] == "STORY"
+    assert story["publicationDate"]["dateTime"] == "2026-10-12T11:00:00"
+    with caplog.at_level("INFO"):
+        stats, notion, metricool, _media, slack = _run_schedule(
+            tmp_path, [row], dry=True, posts=posts
+        )
+    assert stats["scheduled"] == 1
+    assert stats["skipped"] == 0
+    assert stats["reconciled"] == 0
+    metricool.create_scheduled_post.assert_not_called()
+    notion.set_status.assert_not_called()
+    assert slack.call_args.kwargs["reason"] == "scheduled"
+    audit = [
+        line
+        for line in caplog.text.splitlines()
+        if row.page_id in line and "occupants=" in line
+    ]
+    assert len(audit) == 1
+    assert "reason=none occupants=0" in audit[0]
+    assert "notion=2026-10-11T11:00:00-05:00" in audit[0]
+    assert "nearest=387636704" in audit[0]
+    assert "delta_min=240" in audit[0]
+    assert "nearest_thin=392172565" in audit[0]
+    assert "thin_delta_min=1440" in audit[0]
+    assert "[dry-run] Would schedule Metricool post for " + row.page_id in caplog.text
