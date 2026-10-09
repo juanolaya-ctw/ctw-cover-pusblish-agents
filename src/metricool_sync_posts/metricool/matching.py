@@ -3,11 +3,60 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime, timedelta
 from typing import Any
 
-from metricool_sync_posts.metricool.channels import normalize_channel
+from metricool_sync_posts.metricool.channels import normalize_channel, plan_canals
 from metricool_sync_posts.timeutil import dates_equal_within_minutes, notion_date_to_datetime
+
+# Same network and publication time this close is the same slot, even if the caption changed.
+SLOT_MATCH_MINUTES = 15
+
+_TOKEN_STOPWORDS = frozenset(
+    {
+        "a",
+        "al",
+        "ante",
+        "con",
+        "de",
+        "del",
+        "el",
+        "ella",
+        "en",
+        "es",
+        "esa",
+        "ese",
+        "eso",
+        "la",
+        "las",
+        "le",
+        "les",
+        "lo",
+        "los",
+        "para",
+        "por",
+        "que",
+        "se",
+        "su",
+        "sus",
+        "un",
+        "una",
+        "uno",
+        "y",
+        "ya",
+        "the",
+        "and",
+        "of",
+        "to",
+        "for",
+        "in",
+        "on",
+        "with",
+        "this",
+        "that",
+    }
+)
 
 # Provider statuses from Metricool swagger ProviderStatus.
 _LEAVE_STATUSES = frozenset(
@@ -131,6 +180,29 @@ def _post_text_fields(post: dict[str, Any]) -> list[str]:
     return fields
 
 
+def content_tokens(text: str) -> set[str]:
+    """Words that can identify a piece. Drops short words and Spanish/English stopwords."""
+    folded = normalize_text(text)
+    decomposed = unicodedata.normalize("NFD", folded)
+    folded = "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
+    folded = re.sub(r"[^a-z0-9]+", " ", folded)
+    words = folded.split()
+    return {word for word in words if len(word) >= 4 and word not in _TOKEN_STOPWORDS}
+
+
+def token_overlap_similar(left: str, right: str) -> bool:
+    """True when edited captions still share enough content words."""
+    left_tokens = content_tokens(left)
+    right_tokens = content_tokens(right)
+    if not left_tokens or not right_tokens:
+        return False
+    shared = left_tokens & right_tokens
+    if len(shared) >= 3:
+        return True
+    smaller = min(len(left_tokens), len(right_tokens))
+    return len(shared) >= 2 and len(shared) / smaller >= 0.34
+
+
 def texts_similar(left: str, right: str) -> bool:
     """Caption/title similarity that does not depend on the clock time."""
     a = normalize_text(left)
@@ -166,12 +238,24 @@ def text_similarity_score(caption: str, title: str | None, post: dict[str, Any])
     return best
 
 
+def _wanted_networks(notion_channel: str | None) -> set[str]:
+    if not notion_channel:
+        return set()
+    parts = [part.strip() for part in notion_channel.split(",") if part.strip()]
+    plan = plan_canals(parts)
+    if plan.networks:
+        return set(plan.networks)
+    if any(normalize_channel(part) == "linkedin" for part in parts):
+        return {"linkedin"}
+    return set()
+
+
 def _network_compatible(post: dict[str, Any], notion_channel: str | None) -> bool:
-    network = normalize_channel(notion_channel)
-    if not network:
+    wanted = _wanted_networks(notion_channel)
+    if not wanted:
         return True
     networks = post_networks(post)
-    if networks and network not in networks:
+    if networks and not (wanted & networks):
         return False
     return True
 
@@ -325,6 +409,99 @@ def media_overlaps(notion_urls: list[str] | None, post: dict[str, Any]) -> bool:
     return False
 
 
+def _wanted_from_args(network: str | None, networks: list[str] | None) -> set[str]:
+    if networks:
+        return {str(item).strip().lower() for item in networks if str(item).strip()}
+    if network:
+        return {network.strip().lower()}
+    return set()
+
+
+def _same_publication_slot(
+    post: dict[str, Any],
+    notion_publication: datetime | None,
+    tz_name: str,
+    wanted: set[str],
+    *,
+    minutes: int = SLOT_MATCH_MINUTES,
+) -> bool:
+    """Same network(s) and the same publication time, within ``minutes``."""
+    if notion_publication is None:
+        return False
+    mc_date = post_publication_datetime(post, tz_name)
+    if mc_date is None or not dates_equal_within_minutes(notion_publication, mc_date, minutes):
+        return False
+    post_nets = post_networks(post)
+    if wanted and post_nets and not (wanted & post_nets):
+        return False
+    if wanted and not post_nets:
+        return False
+    return True
+
+
+def _duplicate_score(
+    post: dict[str, Any],
+    *,
+    caption: str,
+    title: str | None,
+    wanted: set[str],
+    tz_name: str,
+    notion_publication: datetime | None,
+    media_urls: list[str] | None,
+    window_days: int,
+) -> float:
+    if not _within_days(post, notion_publication, tz_name, window_days):
+        return 0.0
+    nets = post_networks(post)
+    if wanted and nets and not (wanted & nets):
+        return 0.0
+    score = text_similarity_score(caption, title, post)
+    for source in (caption, title or ""):
+        for field in _post_text_fields(post):
+            if token_overlap_similar(source, field):
+                score = max(score, 6.0)
+    if score <= 0 and media_overlaps(media_urls, post):
+        score = 4.0
+    if _same_publication_slot(post, notion_publication, tz_name, wanted):
+        # Edited caption, same slot: still the same piece. Prefer skip over a second post.
+        score = max(score, 9.0)
+    return score
+
+
+def find_duplicate_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    caption: str,
+    title: str | None,
+    network: str | None,
+    tz_name: str,
+    notion_publication: datetime | None = None,
+    media_urls: list[str] | None = None,
+    window_days: int = 7,
+    networks: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Every Metricool post that could already be this piece.
+
+    More than one hit is ambiguous: the caller should skip and report, not create.
+    """
+    wanted = _wanted_from_args(network, networks)
+    hits: list[dict[str, Any]] = []
+    for post in candidates:
+        score = _duplicate_score(
+            post,
+            caption=caption,
+            title=title,
+            wanted=wanted,
+            tz_name=tz_name,
+            notion_publication=notion_publication,
+            media_urls=media_urls,
+            window_days=window_days,
+        )
+        if score > 0:
+            hits.append(post)
+    return hits
+
+
 def find_existing_piece(
     candidates: list[dict[str, Any]],
     *,
@@ -335,20 +512,36 @@ def find_existing_piece(
     notion_publication: datetime | None = None,
     media_urls: list[str] | None = None,
     window_days: int = 7,
+    networks: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Find a Metricool post that is already this piece, at any time in the window."""
+    wanted = _wanted_from_args(network, networks)
     best: dict[str, Any] | None = None
     best_score = 0.0
+    best_delta: float | None = None
     for post in candidates:
-        if not _within_days(post, notion_publication, tz_name, window_days):
+        score = _duplicate_score(
+            post,
+            caption=caption,
+            title=title,
+            wanted=wanted,
+            tz_name=tz_name,
+            notion_publication=notion_publication,
+            media_urls=media_urls,
+            window_days=window_days,
+        )
+        if score <= 0:
             continue
-        nets = post_networks(post)
-        if network and nets and network not in nets:
-            continue
-        score = text_similarity_score(caption, title, post)
-        if score <= 0 and media_overlaps(media_urls, post):
-            score = 4.0
-        if score > best_score:
+        mc_date = post_publication_datetime(post, tz_name)
+        delta = (
+            abs((mc_date - notion_publication).total_seconds())
+            if mc_date is not None and notion_publication is not None
+            else 0.0
+        )
+        if score > best_score or (
+            score == best_score and (best_delta is None or delta < best_delta)
+        ):
             best = post
             best_score = score
+            best_delta = delta
     return best

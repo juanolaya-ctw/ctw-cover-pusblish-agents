@@ -141,11 +141,13 @@ def test_manual_and_unknown_channels_before_media(tmp_path):
 
 
 def test_multi_channel_row_is_not_silently_first():
-    from metricool_sync_posts.notion.properties import _first_channel
+    from metricool_sync_posts.notion.properties import _first_channel, read_channel_names
 
-    assert _first_channel({'Canal': {'type': 'multi_select', 'multi_select': [
+    props = {'Canal': {'type': 'multi_select', 'multi_select': [
         {'name': 'Instagram'}, {'name': 'YouTube'},
-    ]}}, 'Canal') is None
+    ]}}
+    assert read_channel_names(props, 'Canal') == ['Instagram', 'YouTube']
+    assert _first_channel(props, 'Canal') == 'Instagram, YouTube'
 
 
 def test_still_photo_never_gets_video_thumbnail():

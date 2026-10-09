@@ -24,9 +24,9 @@ from metricool_sync_posts.jobs.content_types import (
 from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
 from metricool_sync_posts.media.final_file import FinalFileKind, classify_final_file
 from metricool_sync_posts.media.resolve import prepare_media_urls_for_metricool
-from metricool_sync_posts.metricool.channels import normalize_channel
+from metricool_sync_posts.metricool.channels import canal_labels, normalize_channel, plan_canals
 from metricool_sync_posts.metricool.client import MetricoolClient
-from metricool_sync_posts.metricool.matching import find_existing_piece, post_state
+from metricool_sync_posts.metricool.matching import find_duplicate_candidates, post_state
 from metricool_sync_posts.notion.client import NotionRepository
 from metricool_sync_posts.slack.dedupe import DedupeStore
 from metricool_sync_posts.slack.notify import notify_slack
@@ -69,6 +69,21 @@ def _is_linkedin_only_canal(channel: str | None) -> bool:
 
 def _row_excluded(channel: str | None, exclude: frozenset[str]) -> bool:
     return _channel_is_excluded(channel, exclude) or _is_linkedin_only_canal(channel)
+
+
+def _row_should_drop(row, exclude: frozenset[str]) -> bool:
+    """Drop before media when every Canal value is excluded, or IG Nico is present.
+
+    Unknown labels stay in the loop so the skip is logged. A mix of Newsletter
+    or LinkedIn with a real network is kept; those labels are removed later.
+    """
+    labels = canal_labels(row)
+    if not labels:
+        return False
+    plan = plan_canals(labels, exclude=exclude)
+    if plan.skip_nico:
+        return True
+    return not plan.networks and not plan.unrecognized
 
 
 def _as_post_list(raw: object) -> list[dict]:
@@ -182,7 +197,7 @@ def run_schedule(
         kept = []
         dropped: list[str] = []
         for r in rows:
-            if _row_excluded(r.channel, exclude):
+            if _row_should_drop(r, exclude):
                 dropped.append(f"{(r.channel or '').strip() or '?'}:{r.page_id[:8]}")
                 continue
             kept.append(r)
@@ -240,15 +255,24 @@ def run_schedule(
 
     for row in rows:
         try:
-            network = normalize_channel(row.channel, title=row.title)
-            if network == "linkedin" or _is_linkedin_only_canal(row.channel):
+            labels = canal_labels(row)
+            plan = plan_canals(labels, exclude=exclude)
+            if plan.skip_nico:
                 stats["skipped"] += 1
-                logger.warning("Skip %s: LinkedIn is not scheduled", row.page_id)
+                logger.warning("Skip %s: IG Nico is not scheduled", row.page_id)
                 continue
-            if not network:
+            if not plan.networks or plan.unrecognized:
                 stats["skipped"] += 1
-                logger.warning("Skip %s: unknown/ambiguous channel %r", row.page_id, row.channel)
+                if plan.unrecognized or not labels:
+                    logger.warning(
+                        "Skip %s: unknown/ambiguous channel %r",
+                        row.page_id,
+                        list(plan.unrecognized) or labels or None,
+                    )
+                else:
+                    logger.warning("Skip %s: LinkedIn is not scheduled", row.page_id)
                 continue
+            networks = list(plan.networks)
             pub = publication_dt(row, settings.timezone)
             if pub is None:
                 stats["skipped"] += 1
@@ -264,22 +288,44 @@ def run_schedule(
                 continue
             caption = caption_for_row(notion, row)
             if caption:
-                existing = find_existing_piece(
+                hits = find_duplicate_candidates(
                     existing_posts,
                     caption=caption,
                     title=row.title,
-                    network=network,
+                    network=None,
+                    networks=networks,
                     tz_name=settings.timezone,
                     notion_publication=pub,
                     media_urls=[row.final_file_url] if row.final_file_url else None,
                 )
-                if existing:
+                if len(hits) > 1:
+                    stats["skipped"] += 1
+                    ids = [hit.get("id") or hit.get("postId") for hit in hits]
+                    logger.warning(
+                        "Skip %s: ambiguous duplicate, Metricool posts %s",
+                        row.page_id,
+                        ids,
+                    )
+                    notify_slack(
+                        webhook_url=settings.slack_webhook_url,
+                        channel=settings.slack_channel,
+                        dedupe=dedupe,
+                        notion_page_id=row.page_id,
+                        reason="ambiguous_duplicate",
+                        message=(
+                            f"Schedule skip: more than one Metricool post matches {row.url} "
+                            f"({ids}); not created"
+                        ),
+                        dry_run=dry,
+                    )
+                    continue
+                if len(hits) == 1:
                     _reconcile_existing(
                         settings=settings,
                         notion=notion,
                         dedupe=dedupe,
                         row=row,
-                        post=existing,
+                        post=hits[0],
                         dry=dry,
                     )
                     stats["reconciled"] += 1
@@ -357,7 +403,7 @@ def run_schedule(
                 break
 
             cover_enabled = (
-                network == "instagram"
+                "instagram" in networks
                 and infer_instagram_type(row.title, row.content_type) in {"REEL", "TRIAL_REEL"}
             )
             cover_url = (
@@ -439,6 +485,8 @@ def run_schedule(
                 media_urls=media_urls,
                 cover_url=cover_url,
                 youtube_existing_video=youtube_existing,
+                networks=networks,
+                youtube_short=plan.youtube_short,
             )
             if dry:
                 logger.info("[dry-run] Would schedule Metricool post for %s", row.page_id)

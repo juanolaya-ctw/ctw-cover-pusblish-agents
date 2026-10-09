@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
+from dataclasses import dataclass
+
 NOTION_TO_METRICOOL: dict[str, str] = {
     "instagram": "instagram",
     "ig": "instagram",
@@ -41,3 +45,122 @@ def normalize_channel(notion_channel: str | None, *, title: str | None = None) -
     if len(networks) == 1:
         return next(iter(networks))
     return None
+
+
+def _fold_label(label: str) -> str:
+    raw = re.sub(r"[\s\u00a0]+", " ", label).strip().casefold()
+    decomposed = unicodedata.normalize("NFD", raw)
+    return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
+
+
+def _compact_label(label: str) -> str:
+    return re.sub(r"[\s_-]+", "", _fold_label(label))
+
+
+def label_is_youtube_short(label: str) -> bool:
+    """True for Canal values like 'Youtube Shorts' / 'YT Shorts' (any casing)."""
+    folded = _fold_label(label)
+    compact = _compact_label(label)
+    if compact in {"youtubeshorts", "youtubeshort", "ytshorts", "ytshort"}:
+        return True
+    if re.search(r"\bshorts?\b", folded) and (
+        "youtube" in folded or re.search(r"\byt\b", folded)
+    ):
+        return True
+    return False
+
+
+def _is_ig_nico(label: str) -> bool:
+    folded = _fold_label(label)
+    if folded == "ig nico" or _compact_label(label) == "ignico":
+        return True
+    # A joined display string still skips the row when IG Nico is one of the values.
+    return re.search(r"\big nico\b", folded) is not None
+
+
+def _is_newsletter(label: str) -> bool:
+    return _fold_label(label) == "newsletter"
+
+
+def _is_linkedin_only(label: str) -> bool:
+    folded = _fold_label(label)
+    if "linkedin" not in folded:
+        return False
+    network = normalize_channel(label)
+    return network in (None, "linkedin")
+
+
+def _excluded_label(label: str, exclude: frozenset[str]) -> bool:
+    if not exclude:
+        return False
+    folded = _fold_label(label)
+    return folded in {_fold_label(item) for item in exclude if item.strip()}
+
+
+def canal_labels(row: object) -> list[str]:
+    """Canal names on a Notion row. Multi-select wins over a joined display string."""
+    raw = getattr(row, "channels", None)
+    if raw:
+        return [str(item).strip() for item in raw if str(item).strip()]
+    channel = getattr(row, "channel", None)
+    if channel and str(channel).strip():
+        return [str(channel).strip()]
+    return []
+
+
+def map_canal_label(label: str) -> str | None:
+    """One Canal value → one Metricool network. LinkedIn/Newsletter/IG Nico → None."""
+    if not label or _is_ig_nico(label) or _is_newsletter(label) or _is_linkedin_only(label):
+        return None
+    if label_is_youtube_short(label):
+        return "youtube"
+    compact = _compact_label(label)
+    if compact in {"tiktok", "tik tok".replace(" ", "")}:
+        return "tiktok"
+    if _fold_label(label) in {"tik tok"}:
+        return "tiktok"
+    if compact == "youtube":
+        return "youtube"
+    network = normalize_channel(label)
+    if network in (None, "linkedin"):
+        return None
+    return network
+
+
+@dataclass(frozen=True)
+class CanalPlan:
+    """Networks to put on one Metricool post, in Canal order."""
+
+    networks: tuple[str, ...]
+    youtube_short: bool
+    skip_nico: bool
+    unrecognized: tuple[str, ...]
+
+
+def plan_canals(
+    labels: list[str],
+    *,
+    exclude: frozenset[str] = frozenset(),
+) -> CanalPlan:
+    """Map every Canal value. Drop LinkedIn and Newsletter. Skip the row if IG Nico is present."""
+    if any(_is_ig_nico(label) for label in labels):
+        return CanalPlan((), False, True, ())
+    networks: list[str] = []
+    youtube_short = False
+    unrecognized: list[str] = []
+    for label in labels:
+        if (
+            _is_newsletter(label)
+            or _is_linkedin_only(label)
+            or _excluded_label(label, exclude)
+        ):
+            continue
+        network = map_canal_label(label)
+        if network is None:
+            unrecognized.append(label)
+            continue
+        if network not in networks:
+            networks.append(network)
+        if network == "youtube" and label_is_youtube_short(label):
+            youtube_short = True
+    return CanalPlan(tuple(networks), youtube_short, False, tuple(unrecognized))

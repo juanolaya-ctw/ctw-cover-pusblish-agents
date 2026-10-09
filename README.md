@@ -99,10 +99,10 @@ Ver [.env.example](.env.example). Principales:
 - `NOTION_TOKEN`, `NOTION_DATABASE_ID`
 - `METRICOOL_USER_TOKEN`, `METRICOOL_USER_ID`, `METRICOOL_BLOG_ID`
 - `ENABLE_SCHEDULE=false` (usa `--enable` para un run; o `true` en cron)
-- `SCHEDULE_EXCLUDE_CHANNELS=Newsletter,IG Nico`. Esas dos también están fijas en código. Cualquier Canal que sea solo LinkedIn se excluye; en una fila multi-red se quita LinkedIn y se programa la otra red. No usar los blogs `7255578` ni `7272512`.
+- `SCHEDULE_EXCLUDE_CHANNELS=Newsletter,IG Nico`. Esas dos también están fijas en código. Cualquier Canal que sea solo LinkedIn se excluye. Un Canal con varios valores programa **un** post a todas las redes mapeadas (TikTok, Instagram, YouTube…); `Youtube Shorts` sale como YouTube short. LinkedIn y Newsletter se quitan de esa lista. Si IG Nico está entre los valores, la fila no se programa. No usar los blogs `7255578` ni `7272512`.
 - `SCHEDULE_MAX_PER_RUN` cuenta posts creados. Una fila pasada, duplicada, sin media, de tipo Miniatura, o de un canal excluido no consume cupo.
 - Fechas de publicación ya pasadas no se mueven a «ahora + 5 min»: se omiten y, si hay Slack, se avisan.
-- Si Metricool ya tiene la pieza (caption, título o media, en una ventana de ±7 días), no se crea otra. Notion pasa a **Programado** si sigue pendiente, o a **Publicado** si ya se publicó. Un provider en `ERROR` no cambia Notion.
+- Si Metricool ya tiene la pieza, no se crea otra. El match es caption/título/media (también solapamiento de palabras) en ±7 días, o la misma red y la misma hora de publicación (±15 min) aunque el copy haya cambiado. Varios candidatos: se omite y se reporta, sin crear. Notion pasa a **Programado** si sigue pendiente, o a **Publicado** si ya se publicó. Un provider en `ERROR` no cambia Notion.
 - Tipos en español: `Piezas estática` / `estático` / `estatica` salen como post estático, no como Reel. `Miniaturas` no se programa como post. Sin Archivo Final no se programa.
 - `--dry-run` no escribe: no crea ni actualiza Metricool, no cambia Notion, no sube media pública y no llama a Slack.
 - `GET /v2/scheduler/posts` usa `start` y `end` (swagger `getCalendarReport`). `from`/`to` se ignoran y la API devuelve solo el día de hoy.

@@ -7,7 +7,7 @@ import unicodedata
 from datetime import datetime
 from typing import Any
 
-from metricool_sync_posts.metricool.channels import normalize_channel
+from metricool_sync_posts.metricool.channels import label_is_youtube_short, normalize_channel
 from metricool_sync_posts.timeutil import iso_metricool
 
 logger = logging.getLogger(__name__)
@@ -58,21 +58,36 @@ def build_schedule_body(
     media_id: str | None = None,
     cover_url: str | None = None,
     youtube_existing_video: bool = False,
+    networks: list[str] | None = None,
+    youtube_short: bool = False,
 ) -> dict[str, Any]:
-    network = normalize_channel(channel, title=title)
-    if not network:
-        raise ValueError(f"Unknown or ambiguous channel: {channel!r}")
-    if network == "linkedin":
-        raise ValueError("LinkedIn is not scheduled by this pipeline")
     if is_miniatura_type(content_type):
         raise ValueError(f"Miniatura rows are not scheduled as posts: {content_type!r}")
+    chosen: list[str] = []
+    if networks:
+        for net in networks:
+            key = str(net).strip().lower()
+            if not key or key == "linkedin" or key in chosen:
+                continue
+            chosen.append(key)
+        if not chosen:
+            raise ValueError("LinkedIn is not scheduled by this pipeline")
+    else:
+        network = normalize_channel(channel, title=title)
+        if not network:
+            raise ValueError(f"Unknown or ambiguous channel: {channel!r}")
+        if network == "linkedin":
+            raise ValueError("LinkedIn is not scheduled by this pipeline")
+        chosen = [network]
+    if channel and label_is_youtube_short(channel):
+        youtube_short = True
     body: dict[str, Any] = {
         "publicationDate": {
             "dateTime": iso_metricool(publication),
             "timezone": tz_name,
         },
         "text": caption,
-        "providers": [{"network": network}],
+        "providers": [{"network": net} for net in chosen],
     }
     urls = list(media_urls or [])
     if not urls and media_url:
@@ -83,11 +98,13 @@ def build_schedule_body(
     elif urls:
         body["media"] = urls
 
-    if network == "youtube":
-        yt_type = "short" if content_type and "short" in content_type.lower() else "video"
-        if content_type and "clip" in content_type.lower():
+    folded_type = fold_text(content_type)
+    if "youtube" in chosen:
+        if youtube_short or "short" in folded_type or "clip" in folded_type:
             yt_type = "short"
-        if youtube_existing_video:
+        elif youtube_existing_video:
+            yt_type = "video"
+        else:
             yt_type = "video"
         body["youtubeData"] = {
             "title": (title or caption)[:100],
@@ -96,7 +113,7 @@ def build_schedule_body(
             "madeForKids": False,
             "isAiGeneratedContent": False,
         }
-    elif network == "instagram":
+    if "instagram" in chosen:
         ig_type = infer_instagram_type(title, content_type)
         ig_data: dict[str, Any] = {"type": ig_type, "autoPublish": True}
         if cover_url and ig_type in ("REEL", "TRIAL_REEL"):

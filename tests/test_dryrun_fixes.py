@@ -17,10 +17,15 @@ from metricool_sync_posts.jobs.content_types import build_schedule_body
 from metricool_sync_posts.jobs.schedule import run_schedule
 from metricool_sync_posts.jobs.sync_dates import run_sync_dates
 from metricool_sync_posts.media.pipeline import prepare_media_for_metricool
-from metricool_sync_posts.metricool.channels import normalize_channel
+from metricool_sync_posts.metricool.channels import (
+    label_is_youtube_short,
+    normalize_channel,
+    plan_canals,
+)
 from metricool_sync_posts.metricool.client import FORBIDDEN_BLOG_IDS, MetricoolClient
 from metricool_sync_posts.metricool.matching import (
     find_best_match,
+    find_duplicate_candidates,
     find_existing_piece,
     find_sync_match,
     post_networks,
@@ -831,3 +836,261 @@ def test_dry_run_media_does_not_upload(tmp_path, monkeypatch):
     assert url == "https://cdn.example/clip.mp4"
     assert called["upload"] == 0
     assert not (tmp_path / "media").exists()
+
+
+def test_youtube_shorts_label_maps_to_youtube_short():
+    assert normalize_channel("Youtube Shorts") == "youtube"
+    assert normalize_channel("YT Shorts") == "youtube"
+    assert label_is_youtube_short("Youtube Shorts")
+    assert label_is_youtube_short("youtube shorts")
+    assert label_is_youtube_short("YoUtUbE sHoRtS")
+    assert label_is_youtube_short("YT Shorts")
+    assert not label_is_youtube_short("YouTube")
+    assert not label_is_youtube_short("YT")
+
+    shorts_first = plan_canals(["Youtube Shorts", "TikTok"])
+    assert shorts_first.networks == ("youtube", "tiktok")
+    assert shorts_first.youtube_short is True
+    assert shorts_first.skip_nico is False
+
+    tiktok_first = plan_canals(["TiKToK", "youtube shorts"])
+    assert tiktok_first.networks == ("tiktok", "youtube")
+    assert tiktok_first.youtube_short is True
+
+    mixed = plan_canals(["Instagram", "LinkedIn", "Newsletter"])
+    assert mixed.networks == ("instagram",)
+    assert mixed.youtube_short is False
+
+    nico = plan_canals(["IG Nico", "TikTok"])
+    assert nico.skip_nico is True
+    assert nico.networks == ()
+
+
+def test_multi_canal_schedules_one_post_to_every_network(tmp_path):
+    row = _sched_row(
+        channel=None,
+        channels=["Youtube Shorts", "TikTok"],
+        title="4 libros de negocios",
+        content_type="Video Largo",
+        publication=datetime(2026, 10, 10, 18, 0, tzinfo=BOG),
+        caption="cuatro libros de negocios que el equipo recomienda esta semana",
+    )
+    stats, notion, metricool, _media, _slack = _run_schedule(tmp_path, [row], dry=True)
+    assert stats["scheduled"] == 1
+    assert stats["skipped"] == 0
+    body = metricool.create_scheduled_post.call_args
+    assert body is None
+    # dry-run does not create; rebuild the body the job would have sent via the log path
+    # by running live so the payload is asserted on create_scheduled_post.
+    stats, notion, metricool, _media, _slack = _run_schedule(tmp_path, [row], dry=False)
+    assert stats["scheduled"] == 1
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert body["providers"] == [{"network": "youtube"}, {"network": "tiktok"}]
+    assert body["youtubeData"]["type"] == "short"
+    assert "instagramData" not in body
+    assert "linkedinData" not in body
+    notion.set_status.assert_called_once_with(row.page_id, "Programado", dry_run=False)
+
+    flipped = _sched_row(
+        page_id="3f299829-d217-814e-a5ec-d856e45ce5e4",
+        channel=None,
+        channels=["TikTok", "Youtube Shorts"],
+        title="GovTech: dBrain+",
+        content_type="Video Largo",
+        caption="govtech dbrain un caso para contar en corto y en tiktok juntos",
+    )
+    stats, _notion, metricool, _media, _slack = _run_schedule(tmp_path, [flipped], dry=False)
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert body["providers"] == [{"network": "tiktok"}, {"network": "youtube"}]
+    assert body["youtubeData"]["type"] == "short"
+
+    cased = _sched_row(
+        page_id="3f399829-d217-814e-a5ec-d856e45ce5e5",
+        channel=None,
+        channels=["YoUtUbE sHoRtS", "TiKToK"],
+        title="casing",
+        content_type="Video Largo",
+        caption="el mismo mapeo tiene que aguantar mayusculas mezcladas en canal",
+    )
+    _stats, _notion, metricool, _media, _slack = _run_schedule(tmp_path, [cased], dry=False)
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert [item["network"] for item in body["providers"]] == ["youtube", "tiktok"]
+    assert body["youtubeData"]["type"] == "short"
+
+
+def test_multi_canal_drops_linkedin_and_newsletter_and_skips_ig_nico(tmp_path):
+    mixed = _sched_row(
+        channel=None,
+        channels=["Instagram", "LinkedIn"],
+        content_type="Piezas estática",
+        caption="instagram se queda y linkedin no entra en el mismo post",
+    )
+    stats, _notion, metricool, _media, _slack = _run_schedule(tmp_path, [mixed], dry=False)
+    assert stats["scheduled"] == 1
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert body["providers"] == [{"network": "instagram"}]
+    assert "linkedinData" not in body
+
+    newsletter = _sched_row(
+        page_id="3f499829-d217-814e-a5ec-d856e45ce5e6",
+        channel=None,
+        channels=["Newsletter", "YouTube"],
+        content_type="Video Largo",
+        caption="youtube largo se programa y el newsletter se queda manual",
+    )
+    _stats, _notion, metricool, _media, _slack = _run_schedule(tmp_path, [newsletter], dry=False)
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert body["providers"] == [{"network": "youtube"}]
+    assert body["youtubeData"]["type"] == "video"
+
+    nico = _sched_row(
+        page_id="3f599829-d217-814e-a5ec-d856e45ce5e7",
+        channel=None,
+        channels=["IG Nico", "Instagram"],
+        caption="si aparece ig nico no se publica ninguna de las otras redes",
+    )
+    stats, notion, metricool, media, _slack = _run_schedule(tmp_path, [nico], dry=False)
+    assert stats["queried"] == 0
+    assert stats["scheduled"] == 0
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    notion.set_status.assert_not_called()
+
+
+def test_same_slot_is_a_duplicate_even_when_caption_was_edited(tmp_path):
+    """Notion copy and the Metricool caption diverged; the slot is still the same post."""
+    notion_caption = (
+        "The bridge: entrevista con un fundador que construyo durante anos antes de este cruce"
+    )
+    row = _sched_row(
+        channel="Instagram",
+        title="The bridge: Sentarse con un fundador unicornio",
+        caption=notion_caption,
+        publication=datetime(2026, 10, 9, 18, 0, tzinfo=BOG),
+        content_type="Reels",
+    )
+    existing = _post(
+        post_id=88001,
+        text="A Nico le tomó una década en el ecosistema llegar a sentarse con Simón",
+        when="2026-10-09T18:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    stats, notion, metricool, media, _slack = _run_schedule(
+        tmp_path, [row], dry=True, posts=[existing]
+    )
+    assert stats["reconciled"] == 1
+    assert stats["scheduled"] == 0
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    notion.set_status.assert_not_called()
+
+    stats, notion, metricool, _media, _slack = _run_schedule(
+        tmp_path, [row], dry=False, posts=[existing]
+    )
+    assert stats["reconciled"] == 1
+    assert stats["scheduled"] == 0
+    metricool.create_scheduled_post.assert_not_called()
+    notion.set_status.assert_called_once_with(row.page_id, "Programado", dry_run=False)
+
+
+def test_slot_window_is_fifteen_minutes_and_same_network():
+    notion_at = datetime(2026, 10, 9, 18, 0, tzinfo=BOG)
+    caption = "copy que no comparte palabras con el texto que ya vive en metricool xyz"
+    near = _post(
+        post_id=1,
+        text="A Nico le tomó una década en el ecosistema llegar a sentarse con Simón",
+        when="2026-10-09T18:14:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    far = _post(
+        post_id=2,
+        text="A Nico le tomó una década en el ecosistema llegar a sentarse con Simón",
+        when="2026-10-09T18:16:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    other_net = _post(
+        post_id=3,
+        text="A Nico le tomó una década en el ecosistema llegar a sentarse con Simón",
+        when="2026-10-09T18:00:00",
+        providers=[{"network": "youtube", "status": "PENDING"}],
+    )
+    kwargs = dict(
+        caption=caption,
+        title="titulo distinto sin solape",
+        network="instagram",
+        tz_name=TZ,
+        notion_publication=notion_at,
+    )
+    assert find_duplicate_candidates([near], **kwargs) == [near]
+    assert find_duplicate_candidates([far], **kwargs) == []
+    assert find_duplicate_candidates([other_net], **kwargs) == []
+
+
+def test_fuzzy_caption_overlap_matches_without_the_same_prefix():
+    notion = (
+        "A Nico le tomó una década en el ecosistema llegar a sentarse con Simón Borrero"
+    )
+    edited = (
+        "década ecosistema sentarse Simón pero el resto del copy cambió por completo en metricool"
+    )
+    post = _post(
+        post_id=4,
+        text=edited,
+        when="2026-10-09T12:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    found = find_duplicate_candidates(
+        [post],
+        caption=notion,
+        title="titulo que no aparece en metricool",
+        network="instagram",
+        tz_name=TZ,
+        notion_publication=datetime(2026, 10, 9, 18, 0, tzinfo=BOG),
+    )
+    assert found == [post]
+
+    weak = _post(
+        post_id=5,
+        text="otro texto que solo menciona sentarse y nada mas del original aqui",
+        when="2026-10-09T12:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    assert find_duplicate_candidates(
+        [weak],
+        caption="sentarse con el equipo de colombia tech esta semana en bogota",
+        title="otro titulo",
+        network="instagram",
+        tz_name=TZ,
+        notion_publication=datetime(2026, 10, 9, 18, 0, tzinfo=BOG),
+    ) == []
+
+
+def test_ambiguous_duplicates_are_skipped_not_created(tmp_path):
+    row = _sched_row(
+        channel="Instagram",
+        title="The bridge: Sentarse con un fundador unicornio",
+        caption="copy distinto que no identifica ninguno de los dos posts por texto",
+        publication=datetime(2026, 10, 9, 18, 0, tzinfo=BOG),
+    )
+    first = _post(
+        post_id=11,
+        text="primer texto pendiente en el mismo horario de instagram hoy",
+        when="2026-10-09T18:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    second = _post(
+        post_id=12,
+        text="segundo texto pendiente tambien dentro de la ventana de quince minutos",
+        when="2026-10-09T18:10:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    stats, notion, metricool, media, slack = _run_schedule(
+        tmp_path, [row], dry=False, posts=[first, second]
+    )
+    assert stats["scheduled"] == 0
+    assert stats["reconciled"] == 0
+    assert stats["skipped"] == 1
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    notion.set_status.assert_not_called()
+    assert slack.call_args.kwargs["reason"] == "ambiguous_duplicate"

@@ -107,6 +107,7 @@ class NotionPostRow:
         protagonistas: str,
         metricool_id: str | None = None,
         metricool_uuid: str | None = None,
+        channels: list[str] | None = None,
     ) -> None:
         self.page_id = page_id
         self.url = url
@@ -121,6 +122,21 @@ class NotionPostRow:
         self.protagonistas = protagonistas
         self.metricool_id = metricool_id
         self.metricool_uuid = metricool_uuid
+        if channels:
+            self.channels = [item.strip() for item in channels if item and item.strip()]
+        elif channel:
+            self.channels = [channel]
+        else:
+            self.channels = []
+
+
+def read_channel_names(props: dict[str, Any], name: str) -> list[str]:
+    """Every Canal value. Multi-select keeps all of them, in Notion order."""
+    multi = read_multi_select(props, name)
+    if multi:
+        return multi
+    single = read_select(props, name)
+    return [single] if single else []
 
 
 def _without_linkedin(names: list[str]) -> list[str]:
@@ -128,19 +144,18 @@ def _without_linkedin(names: list[str]) -> list[str]:
 
 
 def _first_channel(props: dict[str, Any], name: str) -> str | None:
-    multi = read_multi_select(props, name)
-    if len(multi) > 1:
-        kept = _without_linkedin(multi)
+    """Display label. Several networks stay together; LinkedIn is removed from the label."""
+    names = read_channel_names(props, name)
+    if len(names) > 1:
+        kept = _without_linkedin(names)
         if len(kept) == 1:
-            # Instagram + LinkedIn schedules the non-LinkedIn network only.
             return kept[0]
         if not kept:
-            return multi[0]
-        # Several non-LinkedIn networks: do not pick one silently.
-        return None
-    if multi:
-        return multi[0]
-    return read_select(props, name)
+            return names[0]
+        return ", ".join(kept)
+    if names:
+        return names[0]
+    return None
 
 
 def read_metricool_ref(props: dict[str, Any], name: str) -> str | None:
@@ -186,6 +201,7 @@ def row_from_page(page: dict[str, Any], settings_names: dict[str, str]) -> Notio
         status=read_select(props, settings_names["status"]),
         publication=read_date(props, settings_names["publication"]),
         channel=_first_channel(props, settings_names["channel"]),
+        channels=read_channel_names(props, settings_names["channel"]),
         caption=caption,
         final_file_url=read_url(props, settings_names["final_file"]),
         title=_first_or_rich_title(props, settings_names["title"]),
