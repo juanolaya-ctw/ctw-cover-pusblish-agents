@@ -15,13 +15,20 @@ dependencies = [
   "pydantic>=2.7.0",
   "pydantic-settings>=2.3.0",
   "tzdata>=2024.1",
+  "google-auth>=2.29.0",
 ]
 
 [project.optional-dependencies]
+ffmpeg = [
+  "imageio-ffmpeg>=0.5.1",
+]
 dev = [
   "pytest>=8.2.0",
   "ruff>=0.4.0",
 ]
+
+[tool.setuptools.package-data]
+metricool_sync_posts = ["BUILD.txt", "py.typed"]
 
 [project.scripts]
 notion-aprobado-metricool = "metricool_sync_posts.cli.schedule:main"
@@ -29,6 +36,7 @@ notion-publicado-metricool = "metricool_sync_posts.cli.confirm_published:main"
 notion-sync-fechas-metricool = "metricool_sync_posts.cli.sync_dates:main"
 metricool-discover = "metricool_sync_posts.cli.discover:main"
 metricool-discover-schema = "metricool_sync_posts.cli.discover_schema:main"
+metricool-validate-env = "metricool_sync_posts.cli.validate_env:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

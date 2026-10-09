@@ -63,7 +63,14 @@ class MetricoolClient:
             params={"url": url, **self._params()},
         )
         resp.raise_for_status()
-        return resp.json()
+        text = (resp.text or "").strip()
+        if not text:
+            return {}
+        try:
+            data = resp.json()
+        except ValueError:
+            return {}
+        return data if isinstance(data, dict) else {}
 
     def create_scheduled_post(self, body: dict[str, Any]) -> dict[str, Any]:
         resp = self._http.post("/v2/scheduler/posts", params=self._params(), json=body)

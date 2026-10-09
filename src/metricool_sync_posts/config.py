@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field, computed_field
+from pydantic import AliasChoices, Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +13,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     # Notion
@@ -54,6 +55,11 @@ class Settings(BaseSettings):
 
     enable_schedule: bool = Field(default=False, alias="ENABLE_SCHEDULE")
     schedule_max_per_run: int = Field(default=5, alias="SCHEDULE_MAX_PER_RUN")
+    schedule_exclude_channels: str = Field(
+        default="Newsletter",
+        alias="SCHEDULE_EXCLUDE_CHANNELS",
+        description="Comma-separated Canal values skipped by schedule (manual Canales workflow)",
+    )
     confirm_max_per_run: int = Field(default=20, alias="CONFIRM_MAX_PER_RUN")
     sync_dates_max_per_run: int = Field(default=20, alias="SYNC_DATES_MAX_PER_RUN")
     publication_window_days: int = Field(default=7, alias="PUBLICATION_WINDOW_DAYS")
@@ -62,8 +68,15 @@ class Settings(BaseSettings):
     ffprobe_bin: str = Field(default="ffprobe", alias="FFPROBE_BIN")
     instagram_video_max_width: int = Field(default=1920, alias="INSTAGRAM_VIDEO_MAX_WIDTH")
     media_work_dir: Path = Field(default=Path(".data/media-work"), alias="MEDIA_WORK_DIR")
+    google_drive_service_account_file: str | None = Field(
+        default=None, alias="GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE"
+    )
 
-    transfer_sh_enabled: bool = Field(default=False, alias="TRANSFER_SH_ENABLED")
+    # TRANSFER_SH=true is accepted as a short alias of TRANSFER_SH_ENABLED
+    transfer_sh_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("TRANSFER_SH_ENABLED", "TRANSFER_SH"),
+    )
     transfer_sh_url: str = Field(default="https://transfer.sh", alias="TRANSFER_SH_URL")
     s3_endpoint: str | None = Field(default=None, alias="S3_ENDPOINT")
     s3_bucket: str | None = Field(default=None, alias="S3_BUCKET")
@@ -82,8 +95,9 @@ class Settings(BaseSettings):
     dry_run: bool = Field(default=False, alias="DRY_RUN")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
-    # Optional ctw-cover-agent (sibling repo on CTW_COVER_AGENT_PATH)
+    # Optional ctw-cover-agent (Phase 2 / Instagram only; OFF for go-live)
     ctw_cover_agent_path: str | None = Field(default=None, alias="CTW_COVER_AGENT_PATH")
+    # Only for cover-agent SVG/Dropbox API path — NOT required for Archivo Final share links
     dropbox_access_token: str | None = Field(default=None, alias="DROPBOX_ACCESS_TOKEN")
     require_cover_for_schedule_override: bool | None = Field(
         default=None,
@@ -93,10 +107,19 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def require_cover_for_schedule(self) -> bool:
-        """True by default when ENABLE_SCHEDULE is on; REQUIRE_COVER_FOR_SCHEDULE=false opts out."""
+        """
+        Skip IG rows without cover_bytes when True.
+
+        Default False (go-live): schedule works without CTW_COVER_AGENT_PATH / Dropbox API.
+        Set REQUIRE_COVER_FOR_SCHEDULE=true only when cover agent is configured (Phase 2).
+        """
         if self.require_cover_for_schedule_override is not None:
             return self.require_cover_for_schedule_override
-        return self.enable_schedule
+        return False
+
+    def schedule_exclude_channels_set(self) -> frozenset[str]:
+        parts = [p.strip() for p in self.schedule_exclude_channels.split(",") if p.strip()]
+        return frozenset(parts)
 
     def ensure_data_dirs(self) -> None:
         self.media_work_dir.mkdir(parents=True, exist_ok=True)

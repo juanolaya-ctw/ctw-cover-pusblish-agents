@@ -17,9 +17,11 @@ def is_trials_reel(title: str) -> bool:
 
 
 def infer_instagram_type(title: str, content_type: str | None) -> str:
+    ct = (content_type or "").lower()
+    if "historia" in ct or "stories" in ct or "story" in ct:
+        return "STORIES"
     if is_trials_reel(title):
         return "TRIAL_REEL"
-    ct = (content_type or "").lower()
     if "carrusel" in ct or "carousel" in ct:
         return "CAROUSEL"
     if "reel" in ct or "video" in ct:
@@ -37,11 +39,13 @@ def build_schedule_body(
     channel: str | None,
     title: str,
     content_type: str | None,
-    media_url: str | None,
+    media_url: str | None = None,
+    media_urls: list[str] | None = None,
     media_id: str | None = None,
     cover_url: str | None = None,
+    youtube_existing_video: bool = False,
 ) -> dict[str, Any]:
-    network = normalize_channel(channel) or "instagram"
+    network = normalize_channel(channel, title=title) or "instagram"
     body: dict[str, Any] = {
         "publicationDate": {
             "dateTime": iso_metricool(publication),
@@ -50,22 +54,34 @@ def build_schedule_body(
         "text": caption,
         "providers": [{"network": network}],
     }
+    urls = list(media_urls or [])
+    if not urls and media_url:
+        urls = [media_url]
+
     if media_id:
         body["media"] = {"mediaId": media_id}
-    elif media_url:
-        body["media"] = [{"url": media_url}]
+    elif urls:
+        body["media"] = urls
 
-    if network == "instagram":
+    if network == "youtube":
+        yt_type = "short" if content_type and "short" in content_type.lower() else "video"
+        if content_type and "clip" in content_type.lower():
+            yt_type = "short"
+        if youtube_existing_video:
+            yt_type = "video"
+        body["youtubeData"] = {
+            "title": (title or caption)[:100],
+            "type": yt_type,
+            "privacy": "public",
+            "madeForKids": False,
+            "isAiGeneratedContent": False,
+        }
+    elif network == "instagram":
         ig_type = infer_instagram_type(title, content_type)
-        body["instagramData"] = {"type": ig_type, "autoPublish": True}
-        # TODO(pilot): Metricool planner JSON for reel/trial cover thumbnail — set field
-        # once confirmed via DevTools (e.g. coverUrl / thumbnail on instagramData).
-        if cover_url:
-            logger.info(
-                "Cover URL ready for %s (%s); not attached to payload until pilot field known",
-                title or "post",
-                cover_url[:80],
-            )
+        ig_data: dict[str, Any] = {"type": ig_type, "autoPublish": True}
+        if cover_url and ig_type in ("REEL", "TRIAL_REEL", "POST"):
+            ig_data["coverUrl"] = cover_url
+        body["instagramData"] = ig_data
     return body
 
 

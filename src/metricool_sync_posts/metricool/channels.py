@@ -17,10 +17,12 @@ NOTION_TO_METRICOOL: dict[str, str] = {
 }
 
 
-def normalize_channel(notion_channel: str | None) -> str | None:
+def normalize_channel(notion_channel: str | None, *, title: str | None = None) -> str | None:
     if not notion_channel:
         return None
     key = notion_channel.strip().lower()
+    if key == "newsletter" and title and "linkedin" in title.lower():
+        return "linkedin"
     for token in key.replace("/", " ").split():
         if token in NOTION_TO_METRICOOL:
             return NOTION_TO_METRICOOL[token]
