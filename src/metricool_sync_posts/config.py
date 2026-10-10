@@ -115,6 +115,16 @@ class Settings(BaseSettings):
     ctw_cover_agent_path: str | None = Field(default=None, alias="CTW_COVER_AGENT_PATH")
     # Forwarded only when the agent still accepts a short-lived access token.
     dropbox_access_token: str | None = Field(default=None, alias="DROPBOX_ACCESS_TOKEN")
+    # Dropbox app credentials used only to read a shared folder (list + download
+    # by file id). Media bytes are uploaded to Metricool, not re-shared.
+    # Refresh token: DROPBOX_REFRESH_TOKEN, or the file path below
+    # (default /home/box/.secrets/dropbox_refresh_token). sharing.write is not used.
+    dropbox_app_key: str | None = Field(default=None, alias="DROPBOX_APP_KEY")
+    dropbox_app_secret: str | None = Field(default=None, alias="DROPBOX_APP_SECRET")
+    dropbox_refresh_token: str | None = Field(default=None, alias="DROPBOX_REFRESH_TOKEN")
+    dropbox_refresh_token_file: str | None = Field(
+        default=None, alias="DROPBOX_REFRESH_TOKEN_FILE"
+    )
     require_cover_for_schedule_override: bool | None = Field(
         default=None,
         alias="REQUIRE_COVER_FOR_SCHEDULE",

@@ -26,11 +26,11 @@ No usar `METRICOOL_BLOG_ID` `7255578` ni `7272512`. `--dry-run` no escribe en Me
 
 - **Carpeta Drive:** requiere `GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE` + carpetas compartidas con esa cuenta. Listado + descarga vía API (`alt=media`).
 - **Archivo Drive:** `/file/d/…` — preferir la misma SA (API). Sin SA, fallback `uc?export=download` (suele devolver HTML si no es público).
-- **Dropbox share/public:** `dl=1` / `raw=1` (sin `DROPBOX_ACCESS_TOKEN` ni API).
-- **URL pública Metricool:** Dropbox `dl=1` / YouTube → pass-through. Drive → SA download luego `S3_*` o litterbox/uguu (transfer.sh solo si `TRANSFER_SH=true`, no es obligatorio).
+- **Dropbox:** un archivo (`/scl/fi/`, `/s/`) se descarga y se sube a Metricool. Una carpeta (`/scl/fo/`, `/sh/`) con `dl=1` es un ZIP: se lista con `files/list_folder` y cada archivo se baja por id (`id:...`), no por path. Carrusel: imágenes. Reel: el video.
+- **URL en el post:** `PUT` + `PATCH /v2/media/s3/upload-transactions` (`planner`). Se guarda `convertedFileUrl` en `https://static.metricool.com`. No se usan litterbox, uguu, transfer.sh, S3 propio ni URLs de Drive o Dropbox. La extensión sale de magic bytes y mimeType (nunca `.bin`). Si la subida falla: `media_host_failed`. Un video de Instagram por encima de 25 Mbps o 300 MB se re-codifica a ~14 Mbps; TikTok o YouTube solos no.
 - **YouTube URL:** programación sobre video existente (equipo debe pasarlo a público antes de la hora).
 - **Carrusel:** todos los images de la carpeta (máx. 10).
 
 ## Portadas de Reel
 
-Instagram `REEL` y `TRIAL_REEL` (también en un post de varias redes) necesitan portada antes de programarse. El texto de la portada es `Titulo` (`NOTION_PROP_COVER_TEXT`), no el título de la tarea. Vacío → `missing_hook`. `CTW_COVER_AGENT_PATH` prepara el PNG; si no está listo se omite con el motivo del agente. `REQUIRE_COVER_FOR_SCHEDULE=true` por defecto. El PNG se publica en un host de al menos 72 h (S3 o litterbox) y Metricool lo recibe en `videoThumbnailUrl`. `--dry-run` no sube archivos.
+Instagram `REEL` y `TRIAL_REEL` (también en un post de varias redes) necesitan portada antes de programarse. El texto de la portada es `Titulo` (`NOTION_PROP_COVER_TEXT`), no el título de la tarea. Vacío → `missing_hook`. `CTW_COVER_AGENT_PATH` prepara `cover-final.png`; se convierte a JPEG y Metricool lo recibe en `videoThumbnailUrl` (no hay campo de portada en `instagramData`). Si esa subida falla, la fila se omite con `media_host_failed`. `--dry-run` no sube archivos. `confirm_published` avisa `media_expired` si un post PENDING de las próximas 24 h tiene un media que no responde 200. Un `update` de Metricool devuelve un id nuevo y el mismo uuid: el match usa el uuid.

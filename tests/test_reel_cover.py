@@ -10,12 +10,15 @@ from zoneinfo import ZoneInfo
 from metricool_sync_posts.config import Settings
 from metricool_sync_posts.cover.bridge import publish_task_from_row
 from metricool_sync_posts.jobs.schedule import run_schedule
+from metricool_sync_posts.media.errors import MediaHostError
 from metricool_sync_posts.notion.properties import row_from_page
 
 TZ = "America/Bogota"
 BOG = ZoneInfo(TZ)
 NOW = datetime(2026, 10, 9, 15, 0, tzinfo=BOG)
 PAGE = "3f299829-d217-81cf-83ee-e66e8ef5139b"
+STATIC_COVER = "https://static.metricool.com/video/1/202610/cover.jpg"
+JPEG = b"\xff\xd8\xffcover"
 
 
 def _settings(tmp_path, **extra):
@@ -62,7 +65,7 @@ def _run(tmp_path, row, *, dry, prepare, upload=None, **settings_kw):
     metricool.get_scheduled_posts.return_value = []
     metricool.create_scheduled_post.return_value = {"id": 99}
     metricool.normalize_media_url.side_effect = lambda url: {"url": url}
-    upload_mock = upload or MagicMock(return_value="https://litter.catbox.moe/cover.png")
+    upload_mock = upload or MagicMock(return_value=STATIC_COVER)
     with (
         patch("metricool_sync_posts.jobs.schedule.NotionRepository", return_value=notion),
         patch("metricool_sync_posts.jobs.schedule.MetricoolClient", return_value=metricool),
@@ -77,7 +80,11 @@ def _run(tmp_path, row, *, dry, prepare, upload=None, **settings_kw):
             side_effect=prepare,
         ) as prepare_mock,
         patch(
-            "metricool_sync_posts.cover.attach.upload_public_url",
+            "metricool_sync_posts.cover.attach.cover_png_to_jpeg",
+            return_value=JPEG,
+        ),
+        patch(
+            "metricool_sync_posts.cover.attach.host_cover_jpeg",
             upload_mock,
         ),
     ):
@@ -156,40 +163,35 @@ def test_ready_cover_bytes_become_video_thumbnail(tmp_path, caplog):
         )
     assert stats["scheduled"] == 1
     body = metricool.create_scheduled_post.call_args.args[0]
-    assert body["videoThumbnailUrl"] == "https://litter.catbox.moe/cover.png"
+    assert body["videoThumbnailUrl"] == STATIC_COVER
     assert body["instagramData"]["type"] == "REEL"
+    assert "coverUrl" not in body["instagramData"]
     upload.assert_called_once()
-    assert upload.call_args.kwargs["min_hours"] == 72
-    assert upload.call_args.kwargs["allow_short"] is False
+    assert upload.call_args.args[1] == JPEG
     notion.set_status.assert_called_once()
     assert "status=ready" in caplog.text
     assert "source=drive" in caplog.text
 
 
-def test_dropbox_cover_url_used_when_durable_upload_fails(tmp_path, caplog):
+def test_external_cover_is_not_used_when_upload_fails(tmp_path, caplog):
     def prepare(*_args, **_kwargs):
         return _ready(
             source="dropbox",
             cover_url="https://www.dropbox.com/s/abc/cover.png?dl=0",
         )
 
-    attempts: list[dict] = []
-
-    def upload(*_args, **kwargs):
-        attempts.append(kwargs)
-        raise RuntimeError("litterbox down")
+    def upload(*_args, **_kwargs):
+        raise MediaHostError("Metricool cover upload failed")
 
     with caplog.at_level("INFO"):
-        stats, _notion, metricool, _media, _slack, _prepare, _upload = _run(
+        stats, _notion, metricool, _media, slack, _prepare, _upload = _run(
             tmp_path, _row(), dry=False, prepare=prepare, upload=upload
         )
-    assert stats["scheduled"] == 1
-    body = metricool.create_scheduled_post.call_args.args[0]
-    assert "dl=1" in body["videoThumbnailUrl"]
-    assert "dropbox.com" in body["videoThumbnailUrl"]
-    assert attempts == [{"min_hours": 72, "allow_short": False}]
+    assert stats["scheduled"] == 0
+    metricool.create_scheduled_post.assert_not_called()
+    assert "media_host_failed" in _reasons(slack)
+    assert "dropbox.com" not in slack.call_args.kwargs["message"]
     assert "source=dropbox" in caplog.text
-    assert "status=ready" in caplog.text
 
 
 def test_dry_run_skips_agent_without_readonly_mode_and_does_not_upload(tmp_path, caplog):
@@ -239,7 +241,7 @@ def test_multi_network_reel_gets_one_thumbnail(tmp_path):
     assert stats["scheduled"] == 1
     body = metricool.create_scheduled_post.call_args.args[0]
     assert [item["network"] for item in body["providers"]] == ["instagram", "tiktok"]
-    assert body["videoThumbnailUrl"] == "https://litter.catbox.moe/cover.png"
+    assert body["videoThumbnailUrl"] == STATIC_COVER
     assert body["instagramData"]["type"] == "REEL"
 
 
@@ -313,22 +315,44 @@ def test_require_cover_false_schedules_reel_without_thumbnail(tmp_path):
     assert "unsupported_link" not in _reasons(slack)
 
 
-def test_existing_miniatura_is_the_cover_source(tmp_path, caplog):
+def test_existing_miniatura_is_reuploaded(tmp_path, caplog):
     def prepare(*_args, **_kwargs):
         raise AssertionError("a public miniatura does not need a new render")
 
     row = _row(miniatura_url="https://cdn.example/already.jpg")
-    with caplog.at_level("INFO"):
+    with (
+        caplog.at_level("INFO"),
+        patch(
+            "metricool_sync_posts.cover.attach.fetch_https_bytes",
+            return_value=JPEG,
+        ),
+    ):
         stats, _notion, metricool, _media, _slack, prepare_mock, upload = _run(
             tmp_path, row, dry=False, prepare=prepare
         )
     assert stats["scheduled"] == 1
     body = metricool.create_scheduled_post.call_args.args[0]
-    assert body["videoThumbnailUrl"] == "https://cdn.example/already.jpg"
+    assert body["videoThumbnailUrl"] == STATIC_COVER
+    assert "cdn.example" not in body["videoThumbnailUrl"]
     prepare_mock.assert_not_called()
-    upload.assert_not_called()
+    upload.assert_called_once()
     assert "source=existing" in caplog.text
     assert "status=ready" in caplog.text
+
+
+def test_static_miniatura_is_reused(tmp_path):
+    def prepare(*_args, **_kwargs):
+        raise AssertionError("a Metricool cover does not need a new render")
+
+    row = _row(miniatura_url=STATIC_COVER)
+    stats, _notion, metricool, _media, _slack, prepare_mock, upload = _run(
+        tmp_path, row, dry=False, prepare=prepare
+    )
+    assert stats["scheduled"] == 1
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert body["videoThumbnailUrl"] == STATIC_COVER
+    prepare_mock.assert_not_called()
+    upload.assert_not_called()
 
 
 def test_row_from_page_keeps_cover_text_apart_from_the_title():

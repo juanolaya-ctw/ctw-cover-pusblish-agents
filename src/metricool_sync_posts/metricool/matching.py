@@ -475,13 +475,62 @@ def _network_compatible(post: dict[str, Any], notion_channel: str | None) -> boo
     return True
 
 
+def post_numeric_id(post: dict[str, Any]) -> str:
+    return str(post.get("id") or post.get("postId") or "").strip()
+
+
+def post_stable_uuid(post: dict[str, Any]) -> str:
+    """Identity that survives update_scheduled_post.
+
+    That call returns a new numeric id and keeps ``uuid``. Claiming and
+    matching must prefer the uuid whenever it is present.
+    """
+    return str(post.get("uuid") or "").strip()
+
+
+def same_metricool_post(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    left_uuid = post_stable_uuid(left)
+    right_uuid = post_stable_uuid(right)
+    if left_uuid and right_uuid:
+        return left_uuid == right_uuid
+    left_id = post_numeric_id(left)
+    right_id = post_numeric_id(right)
+    return bool(left_id) and left_id == right_id
+
+
+def claim_keys_for_post(post: dict[str, Any]) -> list[str]:
+    """Keys for the schedule claim map. Uuid is listed first."""
+    keys: list[str] = []
+    uuid = post_stable_uuid(post)
+    if uuid:
+        keys.append(f"uuid:{uuid}")
+    numeric = post_numeric_id(post)
+    if numeric:
+        keys.append(f"id:{numeric}")
+    return keys
+
+
+def unique_metricool_posts(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse rows that are the same post after an id change."""
+    kept: list[dict[str, Any]] = []
+    for post in posts:
+        if any(same_metricool_post(post, previous) for previous in kept):
+            continue
+        kept.append(post)
+    return kept
+
+
 def _ids_match(post: dict[str, Any], metricool_id: str | None, metricool_uuid: str | None) -> bool:
-    post_id = str(post.get("id") or post.get("postId") or "")
-    post_uuid = str(post.get("uuid") or "")
-    if metricool_id and post_id and post_id == str(metricool_id).strip():
-        return True
-    if metricool_uuid and post_uuid and post_uuid == str(metricool_uuid).strip():
-        return True
+    wanted_uuid = (metricool_uuid or "").strip()
+    wanted_id = (metricool_id or "").strip()
+    # A stored id is stale after update_scheduled_post. When the uuid is known,
+    # it is the only identity that still points at the post.
+    if wanted_uuid:
+        got = post_stable_uuid(post)
+        return bool(got) and got == wanted_uuid
+    if wanted_id:
+        got = post_numeric_id(post)
+        return bool(got) and got == wanted_id
     return False
 
 
@@ -801,8 +850,8 @@ def format_match_evidence(
     overlap = (distinctive_tokens(caption) | distinctive_tokens(title or "")) & set().union(
         *(distinctive_tokens(field) for field in _post_text_fields(post))
     )
-    post_id = str(post.get("id") or post.get("postId") or "")
-    post_uuid = str(post.get("uuid") or "")
+    post_id = post_numeric_id(post)
+    post_uuid = post_stable_uuid(post)
     identified = _copy_identifies_post(
         post,
         caption=caption,
@@ -810,10 +859,10 @@ def format_match_evidence(
         tz_name=tz_name,
         notion_publication=notion_publication,
     )
-    if stored_id and post_id and post_id == stored_id.strip():
-        reason = "id"
-    elif stored_uuid and post_uuid and post_uuid == stored_uuid.strip():
+    if stored_uuid and post_uuid and post_uuid == stored_uuid.strip():
         reason = "uuid"
+    elif stored_id and post_id and post_id == stored_id.strip():
+        reason = "id"
     elif identified and caption_score >= title_score:
         reason = "caption"
     elif identified:
@@ -958,7 +1007,7 @@ def find_duplicate_candidates(
         )
         if score > 0:
             hits.append(post)
-    return hits
+    return unique_metricool_posts(hits)
 
 
 def find_slot_occupants(

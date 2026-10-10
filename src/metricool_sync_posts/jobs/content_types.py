@@ -7,7 +7,12 @@ import unicodedata
 from datetime import datetime
 from typing import Any
 
-from metricool_sync_posts.media.pipeline import IMAGE_EXT, VIDEO_EXT, extension_from_url
+from metricool_sync_posts.media.pipeline import (
+    IMAGE_EXT,
+    VIDEO_EXT,
+    extension_from_url,
+    strip_extension_hint,
+)
 from metricool_sync_posts.metricool.channels import label_is_youtube_short, normalize_channel
 from metricool_sync_posts.timeutil import iso_metricool
 
@@ -160,6 +165,12 @@ def build_schedule_body(
     urls = list(media_urls or [])
     if not urls and media_url:
         urls = [media_url]
+    image_only = urls_are_only_images(urls)
+    # Fragments are a local type hint for extension-less Drive URLs. Metricool
+    # stores the URL it is given, so the hint must not be part of that URL.
+    urls = [strip_extension_hint(url) for url in urls]
+    if cover_url:
+        cover_url = strip_extension_hint(cover_url)
 
     if media_id:
         body["media"] = {"mediaId": media_id}
@@ -189,7 +200,7 @@ def build_schedule_body(
             # Official ScheduledPost schema: thumbnail is top-level, never extra media.
             body["videoThumbnailUrl"] = cover_url
         body["instagramData"] = ig_data
-    if "tiktok" in chosen and urls_are_only_images(urls):
+    if "tiktok" in chosen and image_only:
         # Swagger ScheduledPostTikTokData.photoCoverIndex: 0 is the first image.
         body["tiktokData"] = {"photoCoverIndex": 0}
     return body

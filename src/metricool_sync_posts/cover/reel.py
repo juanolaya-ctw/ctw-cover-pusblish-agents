@@ -11,7 +11,9 @@ from metricool_sync_posts.cover.attach import (
     resolve_miniatura_url,
 )
 from metricool_sync_posts.cover.bridge import prepare_cover_for_publish_task
+from metricool_sync_posts.jobs.common import publication_dt
 from metricool_sync_posts.jobs.content_types import infer_instagram_type
+from metricool_sync_posts.media.errors import MediaHostError
 from metricool_sync_posts.media.urls import is_dropbox_url, is_google_drive_url
 from metricool_sync_posts.metricool.client import MetricoolClient
 
@@ -110,7 +112,12 @@ def resolve_instagram_reel_cover(
 
     miniatura = getattr(row, "miniatura_url", None)
     if miniatura:
-        existing = resolve_miniatura_url(miniatura, metricool=metricool, dry_run=dry_run)
+        existing = resolve_miniatura_url(
+            miniatura,
+            metricool=metricool,
+            dry_run=dry_run,
+            settings=settings,
+        )
         if existing:
             _log(page_id, "ready", "existing", "-")
             return ReelCover(cover_url=existing)
@@ -160,14 +167,22 @@ def resolve_instagram_reel_cover(
         logger.info("[dry-run] Would upload cover for %s (titulo=%s)", page_id, text)
         return ReelCover()
 
-    cover_url = resolve_cover_url_for_metricool(
-        settings=settings,
-        metricool=metricool,
-        page_id=page_id,
-        dry_run=False,
-        cover_bytes=cover_bytes,
-        cover_link=link,
-    )
+    try:
+        cover_url = resolve_cover_url_for_metricool(
+            settings=settings,
+            metricool=metricool,
+            page_id=page_id,
+            dry_run=False,
+            cover_bytes=cover_bytes,
+            cover_link=link,
+            publication=publication_dt(row, settings.timezone),
+        )
+    except MediaHostError as exc:
+        _log(page_id, "skipped", source, "media_host_failed")
+        return ReelCover(
+            skip_reason="media_host_failed",
+            skip_message=f"Schedule skip: media_host_failed for {page_url}: {exc}",
+        )
     if cover_url:
         _log(page_id, "ready", source, "-")
         return ReelCover(cover_url=cover_url)
