@@ -78,9 +78,11 @@ Settings > Secrets and variables > Actions > New repository secret:
 
 blogId=5822365 y zonas America/Bogota se fijan en el workflow.
 No pedir DROPBOX_ACCESS_TOKEN. No .env ni gdrive-sa.json en Git.
-S3_* opcionales requieren diseño de host durable antes de live; este workflow
-no los configura. Fallback litterbox/uguu sigue sin cambios, pero un link temporal
-puede expirar antes de la publicación y debe verificarse en piloto.
+El media y la portada se suben a Metricool (`/v2/media/s3/upload-transactions`)
+y el post guarda `https://static.metricool.com`. No se usan litterbox, uguu,
+transfer.sh ni un enlace de carpeta Dropbox. Un link que ya quedó en Metricool
+y no responde 200 se detecta en `confirm_published` (`media_expired`) antes de
+la hora. La portada del reel es un JPEG en `videoThumbnailUrl`.
 No Slack configurado: no introduce destinatarios de alertas.
 
 Guía oficial de secrets:

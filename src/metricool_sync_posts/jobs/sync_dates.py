@@ -23,6 +23,22 @@ from metricool_sync_posts.timeutil import dates_equal_within_minutes, now_in, pu
 logger = logging.getLogger(__name__)
 
 
+def _log_reassigned_id(requested_id: str, requested_uuid: object, updated: object) -> None:
+    """update_scheduled_post keeps uuid and often returns a new numeric id."""
+    if not isinstance(updated, dict):
+        return
+    new_id = str(updated.get("id") or updated.get("postId") or "").strip()
+    new_uuid = str(updated.get("uuid") or requested_uuid or "").strip()
+    if new_id and new_id != str(requested_id):
+        logger.info(
+            "Metricool update kept uuid %s and assigned a new post id %s (was %s). "
+            "Match later runs on the uuid, not the old id.",
+            new_uuid or "-",
+            new_id,
+            requested_id,
+        )
+
+
 def run_sync_dates(*, settings: Settings, dry_run: bool | None = None) -> dict[str, int]:
     dry = settings.dry_run if dry_run is None else dry_run
     stats = {"queried": 0, "updated": 0, "skipped": 0, "errors": 0}
@@ -91,11 +107,12 @@ def run_sync_dates(*, settings: Settings, dry_run: bool | None = None) -> dict[s
                     pub,
                 )
             else:
-                metricool.update_scheduled_post(
+                updated = metricool.update_scheduled_post(
                     post_id,
                     full_body,
                     uuid=str(uuid) if uuid else None,
                 )
+                _log_reassigned_id(post_id, uuid, updated)
             stats["updated"] += 1
         except Exception as exc:
             stats["errors"] += 1

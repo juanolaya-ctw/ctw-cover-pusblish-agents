@@ -24,16 +24,19 @@ from metricool_sync_posts.jobs.content_types import (
     video_network_skip_reason,
 )
 from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
+from metricool_sync_posts.media.errors import MediaHostError
 from metricool_sync_posts.media.final_file import FinalFileKind, classify_final_file
 from metricool_sync_posts.media.resolve import prepare_media_urls_for_metricool
 from metricool_sync_posts.metricool.channels import canal_labels, normalize_channel, plan_canals
 from metricool_sync_posts.metricool.client import MetricoolClient
 from metricool_sync_posts.metricool.matching import (
+    claim_keys_for_post,
     find_duplicate_candidates,
     find_slot_occupants,
     format_match_evidence,
     nearest_network_post,
     post_copy_is_thin,
+    post_stable_uuid,
     post_state,
     slot_occupant_blocks,
 )
@@ -98,6 +101,20 @@ def _as_post_list(raw: object) -> list[dict]:
 
 def _post_key(post: dict) -> str:
     return str(post.get("id") or post.get("postId") or "")
+
+
+def _remember_claim(claimed: dict[str, str], post: dict, page_id: str) -> None:
+    """Claim by uuid and by the current id.
+
+    update_scheduled_post keeps the uuid and returns a new id, so a claim
+    stored only under the old id would miss the same post on the next read.
+    """
+    for key in claim_keys_for_post(post):
+        claimed.setdefault(key, page_id)
+
+
+def _claimed_by(claimed: dict[str, str], post: dict) -> bool:
+    return any(key in claimed for key in claim_keys_for_post(post))
 
 
 def _gap_minutes(delta: float | None) -> str:
@@ -177,7 +194,7 @@ def _claim_linked_posts(
     tz_name: str,
     connected: frozenset[str],
 ) -> dict[str, str]:
-    """Metricool post id → Notion page that already owns it."""
+    """Metricool uuid/id → Notion page that already owns that post."""
     claimed: dict[str, str] = {}
     for linked in linked_rows:
         if linked.page_id in approved_ids:
@@ -206,20 +223,20 @@ def _claim_linked_posts(
         stored_uuid = str(getattr(linked, "metricool_uuid", None) or "").strip()
         if stored_id or stored_uuid:
             for post in existing_posts:
-                post_uuid = str(post.get("uuid") or "").strip()
-                if (stored_id and _post_key(post) == stored_id) or (
-                    stored_uuid and post_uuid == stored_uuid
-                ):
+                post_uuid = post_stable_uuid(post)
+                # Uuid wins. A stored numeric id may be the pre-update id.
+                if stored_uuid and post_uuid == stored_uuid:
+                    hits.append(post)
+                elif stored_id and not stored_uuid and _post_key(post) == stored_id:
                     hits.append(post)
         for hit in hits:
-            key = _post_key(hit)
-            if not key or key in claimed:
+            if not claim_keys_for_post(hit) or _claimed_by(claimed, hit):
                 continue
-            claimed[key] = linked.page_id
+            _remember_claim(claimed, hit, linked.page_id)
             logger.info(
                 "Match Notion %s -> Metricool %s %s",
                 linked.page_id,
-                key,
+                post_stable_uuid(hit) or _post_key(hit),
                 format_match_evidence(
                     hit,
                     caption=caption,
@@ -507,7 +524,7 @@ def run_schedule(
                     notion_publication=pub,
                     media_urls=[row.final_file_url] if row.final_file_url else None,
                 )
-                hits = [hit for hit in raw_hits if _post_key(hit) not in claimed]
+                hits = [hit for hit in raw_hits if not _claimed_by(claimed, hit)]
                 if len(hits) > 1:
                     stats["skipped"] += 1
                     for hit in hits:
@@ -570,9 +587,7 @@ def run_schedule(
                         post=chosen,
                         dry=dry,
                     )
-                    key = _post_key(chosen)
-                    if key:
-                        claimed[key] = row.page_id
+                    _remember_claim(claimed, chosen, row.page_id)
                     stats["reconciled"] += 1
                     continue
                 occupants = find_slot_occupants(
@@ -769,13 +784,30 @@ def run_schedule(
             youtube_existing = file_ref.kind == FinalFileKind.YOUTUBE
             media_urls: list[str] = []
             if row.final_file_url:
-                media_urls = prepare_media_urls_for_metricool(
-                    settings=settings,
-                    metricool=metricool,
-                    raw_archivo_final=row.final_file_url,
-                    content_type=row.content_type,
-                    dry_run=dry,
-                )
+                try:
+                    media_urls = prepare_media_urls_for_metricool(
+                        settings=settings,
+                        metricool=metricool,
+                        raw_archivo_final=row.final_file_url,
+                        content_type=row.content_type,
+                        dry_run=dry,
+                        notion_page_id=row.page_id,
+                        publication=pub,
+                        networks=networks,
+                    )
+                except MediaHostError as exc:
+                    stats["skipped"] += 1
+                    logger.warning("Skip %s: media_host_failed: %s", row.page_id, exc)
+                    notify_slack(
+                        webhook_url=settings.slack_webhook_url,
+                        channel=settings.slack_channel,
+                        dedupe=dedupe,
+                        notion_page_id=row.page_id,
+                        reason="media_host_failed",
+                        message=f"Schedule skip: media_host_failed for {row.url}: {exc}",
+                        dry_run=dry,
+                    )
+                    continue
 
             if not media_urls:
                 stats["skipped"] += 1

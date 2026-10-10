@@ -10,6 +10,7 @@ import httpx
 
 from metricool_sync_posts.config import Settings
 from metricool_sync_posts.logging_setup import redact_secrets
+from metricool_sync_posts.metricool.media_upload import upload_planner_bytes
 from metricool_sync_posts.timeutil import iso_metricool
 
 logger = logging.getLogger(__name__)
@@ -166,6 +167,26 @@ class MetricoolClient:
         resp = self._http.post("/v2/scheduler/posts", params=self._params(), json=body)
         self._raise_for_status(resp, body)
         return resp.json()
+
+    def upload_planner_media(
+        self,
+        data: bytes,
+        *,
+        content_type: str,
+        file_extension: str,
+    ) -> str:
+        """PUT/PATCH ``/v2/media/s3/upload-transactions`` and return the static URL.
+
+        ``update_scheduled_post`` keeps ``uuid`` and often returns a new numeric id.
+        Callers that update a post must match on ``uuid`` afterwards.
+        """
+        return upload_planner_bytes(
+            self._http,
+            data,
+            params=self._params(),
+            content_type=content_type,
+            file_extension=file_extension,
+        )
 
     def update_scheduled_post(
         self,

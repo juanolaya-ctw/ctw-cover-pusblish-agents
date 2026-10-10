@@ -11,10 +11,12 @@ from metricool_sync_posts.jobs.common import (
     metricool_fetch_window_for_confirm,
     publication_dt,
 )
+from metricool_sync_posts.media.expiry import due_within_24h, media_url_live, post_media_urls
 from metricool_sync_posts.metricool.client import MetricoolClient
 from metricool_sync_posts.metricool.matching import (
     find_best_match,
     find_sync_match,
+    post_publication_datetime,
     post_state,
 )
 from metricool_sync_posts.notion.client import NotionRepository
@@ -26,6 +28,49 @@ logger = logging.getLogger(__name__)
 
 # A post that left the scheduler counts as published only after this grace.
 _VANISHED_GRACE = timedelta(minutes=30)
+
+
+def _warn_if_media_expired(
+    *,
+    settings: Settings,
+    dedupe: DedupeStore,
+    row,
+    post: dict,
+    publication,
+    now,
+    dry: bool,
+    stats: dict[str, int],
+) -> None:
+    """HEAD/GET media on pipeline posts that publish within 24 hours."""
+    if not due_within_24h(publication, now):
+        return
+    urls = post_media_urls(post)
+    if not urls:
+        return
+    dead: list[str] = []
+    for url in urls:
+        live, status = media_url_live(url)
+        if not live:
+            dead.append(f"{url} (HTTP {status})")
+    if not dead:
+        return
+    stats["media_expired"] = stats.get("media_expired", 0) + 1
+    detail = "; ".join(dead)
+    logger.error(
+        "media_expired page=%s notion=%s urls=%s",
+        row.page_id,
+        row.url,
+        detail,
+    )
+    notify_slack(
+        webhook_url=settings.slack_webhook_url,
+        channel=settings.slack_channel,
+        dedupe=dedupe,
+        notion_page_id=row.page_id,
+        reason="media_expired",
+        message=f"media_expired: media URL is gone before publish for {row.url}: {detail}",
+        dry_run=dry,
+    )
 
 
 def _mark_published(notion: NotionRepository, settings: Settings, page_id: str, dry: bool) -> None:
@@ -44,6 +89,7 @@ def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) ->
         "skipped": 0,
         "errors": 0,
         "blockers": 0,
+        "media_expired": 0,
     }
 
     notion = NotionRepository(settings)
@@ -131,6 +177,18 @@ def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) ->
                 continue
             # PENDING, SCHEDULED, UNKNOWN: a found post is not confirmation.
             # UNKNOWN used to be treated as published once the date was past.
+            if state == "PENDING":
+                mc_pub = post_publication_datetime(match, settings.timezone)
+                _warn_if_media_expired(
+                    settings=settings,
+                    dedupe=dedupe,
+                    row=row,
+                    post=match,
+                    publication=mc_pub or pub,
+                    now=now,
+                    dry=dry,
+                    stats=stats,
+                )
             stats["pending"] += 1
         except Exception:
             stats["errors"] += 1

@@ -68,11 +68,15 @@ def _post(
     text,
     when,
     providers,
-    uuid="uuid-1",
+    uuid=None,
     twitter=None,
     media=None,
     youtube_title=None,
 ):
+    # Distinct posts need distinct uuids. update_scheduled_post keeps uuid and
+    # mints a new id, so two rows with the same uuid are one post.
+    if uuid is None:
+        uuid = f"uuid-{post_id}"
     body = {
         "id": post_id,
         "uuid": uuid,
@@ -837,26 +841,17 @@ def test_dry_run_slack_does_not_post_or_touch_dedupe(tmp_path):
     assert not (tmp_path / "slack.json").exists()
 
 
-def test_dry_run_media_does_not_upload(tmp_path, monkeypatch):
+def test_dry_run_media_does_not_upload(tmp_path):
     settings = _settings(tmp_path)
-    called = {"upload": 0}
-
-    def _boom(*_args, **_kwargs):
-        called["upload"] += 1
-        raise AssertionError("upload")
-
-    monkeypatch.setattr(
-        "metricool_sync_posts.media.pipeline.upload_public_url",
-        _boom,
-    )
+    metricool = MagicMock()
     url = prepare_media_for_metricool(
         settings=settings,
-        metricool=MagicMock(),
+        metricool=metricool,
         source_url="https://cdn.example/clip.mp4",
         dry_run=True,
     )
     assert url == "https://cdn.example/clip.mp4"
-    assert called["upload"] == 0
+    metricool.upload_planner_media.assert_not_called()
     assert not (tmp_path / "media").exists()
 
 

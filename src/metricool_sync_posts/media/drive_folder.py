@@ -105,17 +105,39 @@ def list_folder_files(settings: Settings, folder_id: str) -> list[dict[str, Any]
     return files
 
 
-def drive_file_ref_url(file_id: str, name: str | None = None) -> str:
+def drive_file_metadata(settings: Settings, file_id: str) -> dict[str, Any]:
+    """files.get metadata (name, mimeType, size) for a single Drive file."""
+    token = _access_token(settings)
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"fields": "id,name,mimeType,size", "supportsAllDrives": "true"}
+    with httpx.Client(timeout=60.0) as client:
+        resp = client.get(f"{DRIVE_FILES}/{file_id}", params=params, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Drive metadata for {file_id} was not an object")
+    return data
+
+
+def drive_file_ref_url(file_id: str, name: str | None = None, mime: str | None = None) -> str:
     """
     Canonical Drive file URL for the media pipeline.
 
     Embeds the filename as a trailing path segment so extension_from_url works.
-    Download must use the Drive API (alt=media) with the service account — not
-    the public uc?export=download HTML interstitial.
+    A ``.bin`` or missing suffix is replaced from ``mime`` when that is a known
+    image or video type. Download must use the Drive API (alt=media) with the
+    service account — not the public uc?export=download HTML interstitial.
     """
-    safe = Path(name or "media.bin").name or "media.bin"
-    # Keep only a safe basename; quote path-unsafe chars
-    safe = re.sub(r"[^\w.\- ()\[\]]+", "_", safe).strip() or "media.bin"
+    from metricool_sync_posts.media.filetype import media_type_from_mime
+
+    safe = Path(name or "media").name or "media"
+    safe = re.sub(r"[^\w.\- ()\[\]]+", "_", safe).strip() or "media"
+    detected = media_type_from_mime(mime)
+    suffix = Path(safe).suffix.lower()
+    known = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".mov", ".m4v", ".webm"}
+    if detected and suffix not in known:
+        stem = Path(safe).stem or "media"
+        safe = f"{stem}{detected.ext}"
     return f"https://drive.google.com/file/d/{file_id}/{quote(safe, safe='().[] -_')}"
 
 
@@ -211,6 +233,42 @@ def download_drive_file(
     ) from last_error
 
 
+def pick_folder_entries(
+    entries: list[dict[str, Any]],
+    *,
+    folder_id: str,
+    carousel: bool,
+    stories: bool,
+) -> list[dict[str, Any]]:
+    """Choose which folder files become the Metricool media list."""
+    if not entries:
+        raise ValueError(f"Drive folder {folder_id} is empty or not shared with service account")
+
+    images = [e for e in entries if e.get("mimeType") in _IMAGE_MIMES]
+    videos = [e for e in entries if e.get("mimeType") in _VIDEO_MIMES]
+
+    if carousel and len(images) > 1:
+        picked = images[:10]
+        logger.info("Drive folder %s: carousel %s images", folder_id, len(picked))
+        return picked
+
+    if stories:
+        pick = videos[0] if videos else images[0] if images else entries[0]
+        return [pick]
+
+    if videos:
+        # largest video by size when available
+        videos.sort(key=lambda e: int(e.get("size") or 0), reverse=True)
+        return [videos[0]]
+
+    if images:
+        if carousel:
+            return images[:10]
+        return [images[0]]
+
+    return [entries[0]]
+
+
 def resolve_folder_to_download_urls(
     settings: Settings,
     folder_id: str,
@@ -226,32 +284,7 @@ def resolve_folder_to_download_urls(
     - default: prefer single video; else first file
     """
     entries = list_folder_files(settings, folder_id)
-    if not entries:
-        raise ValueError(f"Drive folder {folder_id} is empty or not shared with service account")
-
-    images = [e for e in entries if e.get("mimeType") in _IMAGE_MIMES]
-    videos = [e for e in entries if e.get("mimeType") in _VIDEO_MIMES]
-
-    def urls_for(picked: list[dict[str, Any]]) -> list[str]:
-        return [drive_file_ref_url(e["id"], e.get("name")) for e in picked]
-
-    if carousel and len(images) > 1:
-        picked = images[:10]
-        logger.info("Drive folder %s: carousel %s images", folder_id, len(picked))
-        return urls_for(picked)
-
-    if stories:
-        pick = videos[0] if videos else images[0] if images else entries[0]
-        return urls_for([pick])
-
-    if videos:
-        # largest video by size when available
-        videos.sort(key=lambda e: int(e.get("size") or 0), reverse=True)
-        return urls_for([videos[0]])
-
-    if images:
-        if carousel:
-            return urls_for(images[:10])
-        return urls_for([images[0]])
-
-    return urls_for([entries[0]])
+    picked = pick_folder_entries(
+        entries, folder_id=folder_id, carousel=carousel, stories=stories
+    )
+    return [drive_file_ref_url(e["id"], e.get("name"), e.get("mimeType")) for e in picked]

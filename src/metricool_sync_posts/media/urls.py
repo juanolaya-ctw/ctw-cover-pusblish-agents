@@ -10,6 +10,19 @@ def is_dropbox_url(url: str) -> bool:
     return "dropbox.com" in host or "dropboxusercontent.com" in host
 
 
+def is_dropbox_folder_url(url: str) -> bool:
+    """True for folder shares (``/scl/fo/``, ``/sh/``). ``dl=1`` of those is a ZIP.
+
+    ``/scl/fi/`` and ``/s/`` are files and are not treated as folders.
+    """
+    path = urlparse(url).path.lower()
+    if "/scl/fi/" in path:
+        return False
+    if "/sh/" in path:
+        return True
+    return "/scl/fo/" in path
+
+
 def is_google_drive_url(url: str) -> bool:
     host = urlparse(url).netloc.lower()
     return "drive.google.com" in host or "docs.google.com" in host

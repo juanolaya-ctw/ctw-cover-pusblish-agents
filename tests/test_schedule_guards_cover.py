@@ -104,6 +104,14 @@ def exercise(tmp_path, *, dry, notion_failure=False, rows=None):
         patch('metricool_sync_posts.jobs.schedule.build_schedule_body',
               wraps=build_schedule_body) as builder,
         patch('metricool_sync_posts.jobs.schedule.notify_slack'),
+        patch(
+            'metricool_sync_posts.cover.attach.fetch_https_bytes',
+            return_value=b'\xff\xd8\xffok',
+        ),
+        patch(
+            'metricool_sync_posts.cover.attach.host_cover_jpeg',
+            return_value='https://static.metricool.com/video/1/202610/cover.jpg',
+        ),
     ):
         stats = run_schedule(settings=settings, dry_run=dry,
                              exclude_channels=frozenset({'IG Nico'}))
