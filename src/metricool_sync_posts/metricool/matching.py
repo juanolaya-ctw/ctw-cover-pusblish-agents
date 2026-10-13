@@ -11,8 +11,21 @@ from typing import Any
 from metricool_sync_posts.metricool.channels import normalize_channel, plan_canals
 from metricool_sync_posts.timeutil import dates_equal_within_minutes, notion_date_to_datetime
 
-# Same network and publication time this close is the same slot, even if the caption changed.
+# Same network, same format group, and publication time this close share a slot.
 SLOT_MATCH_MINUTES = 15
+# Instagram Stories only collide with Stories. POST (including carousel),
+# REEL, and TRIAL_REEL share the feed group. TikTok and YouTube are each
+# their own group: a different network or format at the same minute is free.
+FORMAT_INSTAGRAM_STORY = "instagram:story"
+FORMAT_INSTAGRAM_FEED = "instagram:feed"
+FORMAT_TIKTOK = "tiktok"
+FORMAT_YOUTUBE = "youtube"
+FORMAT_GROUP_LABELS: dict[str, str] = {
+    FORMAT_INSTAGRAM_STORY: "Instagram Stories",
+    FORMAT_INSTAGRAM_FEED: "Instagram feed",
+    FORMAT_TIKTOK: "TikTok",
+    FORMAT_YOUTUBE: "YouTube",
+}
 # Shared Spanish boilerplate is common inside a couple of days; farther apart, only
 # near-copies count. The slot rule does not use this cutoff.
 _NEAR_SIMILARITY = 0.6
@@ -1010,6 +1023,44 @@ def find_duplicate_candidates(
     return unique_metricool_posts(hits)
 
 
+def post_format_groups(post: dict[str, Any]) -> frozenset[str]:
+    """Format groups a Metricool post occupies, from its network and type.
+
+    ``instagramData.type`` STORY is Instagram Stories. Every other Instagram
+    type (POST, carousel, REEL, TRIAL_REEL), and an Instagram post with no
+    type, is feed. TikTok and YouTube come from the network and do not split
+    further (a short and a long video share YouTube).
+    """
+    groups: set[str] = set()
+    networks = post_networks(post)
+    ig = post.get("instagramData")
+    ig_type = ""
+    if isinstance(ig, dict):
+        ig_type = str(ig.get("type") or "").strip().upper()
+    if "instagram" in networks or ig_type:
+        if ig_type == "STORY":
+            groups.add(FORMAT_INSTAGRAM_STORY)
+        else:
+            groups.add(FORMAT_INSTAGRAM_FEED)
+    if "tiktok" in networks:
+        groups.add(FORMAT_TIKTOK)
+    if "youtube" in networks:
+        groups.add(FORMAT_YOUTUBE)
+    return frozenset(groups)
+
+
+def describe_format_groups(groups: set[str] | frozenset[str]) -> str:
+    """Human label for the format groups that actually overlap."""
+    labels = [FORMAT_GROUP_LABELS[key] for key in sorted(groups) if key in FORMAT_GROUP_LABELS]
+    if not labels:
+        return "the same network and format"
+    if len(labels) == 1:
+        return labels[0]
+    if len(labels) == 2:
+        return f"{labels[0]} and {labels[1]}"
+    return ", ".join(labels[:-1]) + ", and " + labels[-1]
+
+
 def find_slot_occupants(
     candidates: list[dict[str, Any]],
     *,
@@ -1017,14 +1068,25 @@ def find_slot_occupants(
     tz_name: str,
     notion_publication: datetime | None,
     networks: list[str] | None = None,
+    format_groups: set[str] | frozenset[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Posts on the same network(s) within the slot window, whatever the caption says."""
+    """Posts in the slot window that share a network and a format group.
+
+    ``format_groups`` is the candidate's groups. A post is an occupant only
+    when at least one group overlaps (Stories with Stories, feed with feed,
+    TikTok with TikTok, YouTube with YouTube). Omit it to keep the older
+    network-only match.
+    """
     wanted = _wanted_from_args(network, networks)
-    return [
-        post
-        for post in candidates
-        if _same_publication_slot(post, notion_publication, tz_name, wanted)
-    ]
+    wanted_groups = set(format_groups) if format_groups is not None else None
+    hits: list[dict[str, Any]] = []
+    for post in candidates:
+        if not _same_publication_slot(post, notion_publication, tz_name, wanted):
+            continue
+        if wanted_groups is not None and not (wanted_groups & post_format_groups(post)):
+            continue
+        hits.append(post)
+    return hits
 
 
 def nearest_network_post(

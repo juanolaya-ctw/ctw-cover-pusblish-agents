@@ -21,6 +21,7 @@ from metricool_sync_posts.jobs.content_types import (
     is_miniatura_type,
     is_story_type,
     partition_image_networks,
+    publication_format_groups,
     video_network_skip_reason,
 )
 from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
@@ -30,12 +31,15 @@ from metricool_sync_posts.media.resolve import prepare_media_urls_for_metricool
 from metricool_sync_posts.metricool.channels import canal_labels, normalize_channel, plan_canals
 from metricool_sync_posts.metricool.client import MetricoolClient
 from metricool_sync_posts.metricool.matching import (
+    SLOT_MATCH_MINUTES,
     claim_keys_for_post,
+    describe_format_groups,
     find_duplicate_candidates,
     find_slot_occupants,
     format_match_evidence,
     nearest_network_post,
     post_copy_is_thin,
+    post_format_groups,
     post_stable_uuid,
     post_state,
     slot_occupant_blocks,
@@ -44,7 +48,12 @@ from metricool_sync_posts.metricool.profiles import load_connected_networks
 from metricool_sync_posts.notion.client import NotionRepository
 from metricool_sync_posts.slack.dedupe import DedupeStore
 from metricool_sync_posts.slack.notify import notify_slack
-from metricool_sync_posts.timeutil import calendar_week_bounds, now_in, publication_sort_key
+from metricool_sync_posts.timeutil import (
+    calendar_week_bounds,
+    dates_equal_within_minutes,
+    now_in,
+    publication_sort_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +132,48 @@ def _gap_minutes(delta: float | None) -> str:
     return str(int(round(delta)))
 
 
+def _peer_slot_conflicts(
+    taken: list[dict],
+    *,
+    publication: datetime,
+    groups: frozenset[str],
+) -> list[dict]:
+    """Rows already scheduled this run that share a format group inside ±15 min."""
+    if not groups:
+        return []
+    hits: list[dict] = []
+    for slot in taken:
+        if not (groups & slot["groups"]):
+            continue
+        if dates_equal_within_minutes(publication, slot["publication"], SLOT_MATCH_MINUTES):
+            hits.append(slot)
+    return hits
+
+
+def _conflict_parties(
+    *,
+    groups: frozenset[str],
+    blocking: list[dict],
+    peers: list[dict],
+) -> str:
+    """Name each real conflict with the format group it shares."""
+    parts: list[str] = []
+    for post in blocking:
+        shared = groups & post_format_groups(post)
+        parts.append(f"Metricool {_post_key(post)} ({describe_format_groups(shared)})")
+    for slot in peers:
+        shared = groups & slot["groups"]
+        label = slot.get("url") or slot["page_id"]
+        parts.append(f"{label} ({describe_format_groups(shared)})")
+    if not parts:
+        return "another piece"
+    if len(parts) == 1:
+        return parts[0]
+    if len(parts) == 2:
+        return f"{parts[0]} and {parts[1]}"
+    return ", ".join(parts[:-1]) + ", and " + parts[-1]
+
+
 def _log_slot_guard(
     posts: list[dict],
     *,
@@ -132,6 +183,8 @@ def _log_slot_guard(
     notion_publication,
     occupants: list[dict],
     blocking: list[dict],
+    groups: frozenset[str] | set[str] | None = None,
+    peer_conflicts: int = 0,
 ) -> None:
     """One line per candidate, including rows with nothing in the ±15 min slot."""
     nearest, nearest_delta = nearest_network_post(
@@ -149,18 +202,20 @@ def _log_slot_guard(
         notion_publication=notion_publication,
         thin_only=True,
     )
-    if not occupants:
+    if not occupants and not peer_conflicts:
         reason = "none"
-    elif blocking:
+    elif blocking or peer_conflicts:
         reason = "slot_conflict"
     else:
         reason = "cleared"
     logger.info(
-        "Slot Notion %s reason=%s occupants=%s notion=%s "
+        "Slot Notion %s reason=%s occupants=%s peers=%s groups=%s notion=%s "
         "nearest=%s delta_min=%s nearest_thin=%s thin_delta_min=%s",
         row.page_id,
         reason,
         len(occupants),
+        peer_conflicts,
+        ",".join(sorted(groups or ())) or "-",
         notion_publication.isoformat(timespec="seconds"),
         _post_key(nearest) if nearest else "-",
         _gap_minutes(nearest_delta),
@@ -430,6 +485,10 @@ def run_schedule(
     if claimed:
         logger.info("Metricool posts already claimed by other Notion rows: %s", sorted(claimed))
 
+    # Pieces this run has already accepted. A later row conflicts only when it
+    # shares one of these format groups inside the 15-minute window.
+    taken_slots: list[dict] = []
+
     for row in rows:
         try:
             labels = canal_labels(row)
@@ -590,12 +649,18 @@ def run_schedule(
                     _remember_claim(claimed, chosen, row.page_id)
                     stats["reconciled"] += 1
                     continue
+                groups = publication_format_groups(
+                    networks,
+                    title=row.title,
+                    content_type=row.content_type,
+                )
                 occupants = find_slot_occupants(
                     existing_posts,
                     network=None,
                     networks=networks,
                     tz_name=settings.timezone,
                     notion_publication=pub,
+                    format_groups=groups,
                 )
                 story = is_story_type(row.content_type)
                 notion_media = [row.final_file_url] if row.final_file_url else None
@@ -606,6 +671,11 @@ def run_schedule(
                         occupant, story=story, media_urls=notion_media
                     )
                 ]
+                peers = _peer_slot_conflicts(
+                    taken_slots,
+                    publication=pub,
+                    groups=groups,
+                )
                 _log_slot_guard(
                     existing_posts,
                     row=row,
@@ -614,6 +684,8 @@ def run_schedule(
                     notion_publication=pub,
                     occupants=occupants,
                     blocking=blocking,
+                    groups=groups,
+                    peer_conflicts=len(peers),
                 )
                 for occupant in occupants:
                     if occupant not in blocking:
@@ -622,7 +694,7 @@ def run_schedule(
                             _post_key(occupant),
                             row.page_id,
                         )
-                if blocking:
+                if blocking or peers:
                     stats["skipped"] += 1
                     for occupant in blocking:
                         if post_copy_is_thin(occupant):
@@ -645,15 +717,24 @@ def run_schedule(
                                 media_urls=notion_media,
                             ),
                         )
-                    ids = [_post_key(post) for post in blocking]
+                    for peer in peers:
+                        logger.info(
+                            "Slot peer %s blocks %s on %s",
+                            peer["page_id"],
+                            row.page_id,
+                            describe_format_groups(groups & peer["groups"]),
+                        )
+                    who = _conflict_parties(groups=groups, blocking=blocking, peers=peers)
                     logger.warning(
-                        "Skip %s: slot_conflict, Metricool posts %s",
+                        "Skip %s: slot_conflict with %s",
                         row.page_id,
-                        ids,
+                        who,
                     )
                     empty_slot = any(post_copy_is_thin(post) for post in blocking)
                     if empty_slot:
                         why = "whose text is empty or too short to compare"
+                    elif peers and not blocking:
+                        why = "which is another piece on the same network and format"
                     elif story:
                         why = "and this row is a Historia"
                     else:
@@ -665,8 +746,8 @@ def run_schedule(
                         notion_page_id=row.page_id,
                         reason="slot_conflict",
                         message=(
-                            f"Schedule skip: {row.url} shares a publication slot with "
-                            f"Metricool {ids}, {why}; not created"
+                            f"Schedule skip: {row.url} shares a publication slot "
+                            f"within 15 minutes with {who}, {why}; not created"
                         ),
                         dry_run=dry,
                     )
@@ -890,6 +971,18 @@ def run_schedule(
                 # raises above and leaves Notion on Aprobado.
                 notion.set_status(row.page_id, settings.notion_status_scheduled, dry_run=False)
             stats["scheduled"] += 1
+            taken_slots.append(
+                {
+                    "page_id": row.page_id,
+                    "url": getattr(row, "url", None) or row.page_id,
+                    "publication": pub,
+                    "groups": publication_format_groups(
+                        networks,
+                        title=row.title,
+                        content_type=row.content_type,
+                    ),
+                }
+            )
             notify_slack(
                 webhook_url=settings.slack_webhook_url,
                 channel=settings.slack_channel,

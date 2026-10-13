@@ -80,8 +80,14 @@ def test_invalid_uuid_before_clients(tmp_path):
 
 
 def test_without_flag_fetches_full_week(tmp_path):
-    """Skips must not hide later rows behind SCHEDULE_MAX_PER_RUN at fetch time."""
+    """Skips must not hide later rows behind SCHEDULE_MAX_PER_RUN at fetch time.
+
+    Both reels share a clock time, so the second is a feed slot conflict.
+    It is still fetched and decided, not dropped by the create cap.
+    """
     stats, notion, _, media = exercise(tmp_path, [row(TARGET), row(OTHER)], target=None)
-    assert stats['scheduled'] == 2
+    assert stats['queried'] == 2
+    assert stats['scheduled'] == 1
+    assert stats['skipped'] == 1
     assert notion.fetch_approved_current_week.call_args.kwargs['limit'] is None
-    assert media.call_count == 2
+    assert media.call_count == 1

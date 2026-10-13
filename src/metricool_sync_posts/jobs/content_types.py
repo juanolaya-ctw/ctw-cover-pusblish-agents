@@ -14,6 +14,12 @@ from metricool_sync_posts.media.pipeline import (
     strip_extension_hint,
 )
 from metricool_sync_posts.metricool.channels import label_is_youtube_short, normalize_channel
+from metricool_sync_posts.metricool.matching import (
+    FORMAT_INSTAGRAM_FEED,
+    FORMAT_INSTAGRAM_STORY,
+    FORMAT_TIKTOK,
+    FORMAT_YOUTUBE,
+)
 from metricool_sync_posts.timeutil import iso_metricool
 
 # ScheduledPostTikTokData in the Metricool swagger has photoCoverIndex and
@@ -115,6 +121,34 @@ def infer_instagram_type(title: str, content_type: str | None) -> str:
     if "reel" in ct or "video" in ct:
         return "REEL"
     return "REEL"
+
+
+def publication_format_groups(
+    networks: list[str],
+    *,
+    title: str | None,
+    content_type: str | None,
+) -> frozenset[str]:
+    """Format groups this row will publish on.
+
+    Instagram Stories only share a slot with Stories. POST (static and
+    carousel), REEL, and TRIAL_REEL share Instagram feed. TikTok only shares
+    with TikTok, and YouTube only with YouTube.
+    """
+    groups: set[str] = set()
+    for net in networks:
+        key = str(net).strip().lower()
+        if key == "instagram":
+            ig_type = infer_instagram_type(title or "", content_type)
+            if ig_type == "STORY":
+                groups.add(FORMAT_INSTAGRAM_STORY)
+            else:
+                groups.add(FORMAT_INSTAGRAM_FEED)
+        elif key == "tiktok":
+            groups.add(FORMAT_TIKTOK)
+        elif key == "youtube":
+            groups.add(FORMAT_YOUTUBE)
+    return frozenset(groups)
 
 
 def build_schedule_body(
