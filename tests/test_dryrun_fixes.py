@@ -72,6 +72,7 @@ def _post(
     twitter=None,
     media=None,
     youtube_title=None,
+    instagram_type=None,
 ):
     # Distinct posts need distinct uuids. update_scheduled_post keeps uuid and
     # mints a new id, so two rows with the same uuid are one post.
@@ -89,6 +90,8 @@ def _post(
         body["media"] = media
     if youtube_title is not None:
         body["youtubeData"] = {"title": youtube_title}
+    if instagram_type is not None:
+        body["instagramData"] = {"type": instagram_type, "autoPublish": True}
     return body
 
 
@@ -1629,6 +1632,7 @@ def _empty_instagram_story(**overrides):
         when="2026-10-12T11:00:00",
         providers=[{"network": "instagram", "status": "PENDING"}],
         media=[_METRICOOL_STORY],
+        instagram_type="STORY",
     )
     body.update(overrides)
     return body
@@ -1691,16 +1695,24 @@ def test_empty_instagram_story_slot_is_not_scheduled_again(tmp_path):
     media.assert_not_called()
     notion.set_status.assert_not_called()
     assert slack.call_args.kwargs["reason"] == "slot_conflict"
-    assert "empty or too short" in slack.call_args.kwargs["message"]
+    message = slack.call_args.kwargs["message"]
+    assert "empty or too short" in message
+    assert "within 15 minutes" in message
+    assert "Instagram Stories" in message
+    assert "400100200" in message
 
 
-def test_short_text_occupant_also_blocks_a_non_story_row(tmp_path):
+def test_short_text_feed_occupant_blocks_another_feed_row(tmp_path):
+    """A short caption still blocks when both sides are Instagram feed."""
     row = _fiscal_story_row(
         content_type="Piezas estática",
         channels=["Instagram"],
         channel="Instagram",
     )
-    story = _empty_instagram_story(text="IG")
+    story = _empty_instagram_story(
+        text="IG",
+        instagramData={"type": "POST", "autoPublish": True},
+    )
     stats, _notion, metricool, media, slack = _run_schedule(
         tmp_path, [row], dry=True, posts=[story]
     )
@@ -1709,6 +1721,10 @@ def test_short_text_occupant_also_blocks_a_non_story_row(tmp_path):
     metricool.create_scheduled_post.assert_not_called()
     media.assert_not_called()
     assert slack.call_args.kwargs["reason"] == "slot_conflict"
+    message = slack.call_args.kwargs["message"]
+    assert "Instagram feed" in message
+    assert "within 15 minutes" in message
+    assert "empty or too short" in message
 
 
 def test_clearly_different_media_can_use_a_slot_whose_text_is_empty(tmp_path):
@@ -1785,6 +1801,11 @@ def test_long_different_caption_still_conflicts_when_media_urls_differ(tmp_path)
     metricool.create_scheduled_post.assert_not_called()
     media.assert_not_called()
     assert slack.call_args.kwargs["reason"] == "slot_conflict"
+    message = slack.call_args.kwargs["message"]
+    assert "Instagram feed" in message
+    assert "within 15 minutes" in message
+    assert "387636704" in message
+    assert "different piece" in message
 
 
 def test_govtech_story_payload_is_the_next_day_and_logs_no_occupant(tmp_path, caplog):
@@ -1829,3 +1850,368 @@ def test_govtech_story_payload_is_the_next_day_and_logs_no_occupant(tmp_path, ca
     assert "nearest_thin=392172565" in audit[0]
     assert "thin_delta_min=1440" in audit[0]
     assert "[dry-run] Would schedule Metricool post for " + row.page_id in caplog.text
+
+
+_STORY_CAPTION = (
+    "Convocatoria del webinar fiscal contada solo en una historia de Instagram"
+)
+_REEL_CAPTION = (
+    "El fundador cruzo la frontera y reconstruyo el equipo comercial en Mexico"
+)
+_CAROUSEL_CAPTION = (
+    "Colombia quedo fuera del ranking de gobierno digital y estos indicadores lo explican"
+)
+_TRIAL_CAPTION = (
+    "Cinco atajos de Claude que la redaccion usa para investigar sin copiar el guion"
+)
+
+
+def _conflict_message(slack):
+    return next(
+        call.kwargs["message"]
+        for call in slack.call_args_list
+        if call.kwargs["reason"] == "slot_conflict"
+    )
+
+
+def test_story_and_feed_at_the_same_time_both_schedule(tmp_path):
+    story = _sched_row(
+        page_id="3e111111-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/story",
+        channel="Instagram",
+        title="Historia fiscal",
+        caption=_STORY_CAPTION,
+        content_type="Historias",
+        publication=datetime(2026, 10, 12, 11, 0, tzinfo=BOG),
+    )
+    reel = _sched_row(
+        page_id="3e222222-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/reel",
+        channel="Instagram",
+        title="The bridge Mexico",
+        caption=_REEL_CAPTION,
+        content_type="Reels",
+        publication=datetime(2026, 10, 12, 11, 0, tzinfo=BOG),
+    )
+    stats, _notion, metricool, _media, slack = _run_schedule(
+        tmp_path, [story, reel], dry=False
+    )
+    assert stats["scheduled"] == 2
+    assert stats["skipped"] == 0
+    reasons = [call.kwargs["reason"] for call in slack.call_args_list]
+    assert reasons.count("scheduled") == 2
+    assert "slot_conflict" not in reasons
+    types = [
+        call.args[0]["instagramData"]["type"]
+        for call in metricool.create_scheduled_post.call_args_list
+    ]
+    assert types == ["STORY", "REEL"]
+
+
+def test_same_feed_within_fifteen_minutes_names_the_other_piece(tmp_path):
+    first = _sched_row(
+        page_id="3e111111-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/carousel",
+        channel="Instagram",
+        title="Ranking OCDE",
+        caption=_CAROUSEL_CAPTION,
+        content_type="Carrusel",
+        publication=datetime(2026, 10, 12, 15, 0, tzinfo=BOG),
+    )
+    second = _sched_row(
+        page_id="3e222222-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/reel",
+        channel="Instagram",
+        title="The bridge Mexico",
+        caption=_REEL_CAPTION,
+        content_type="Reels",
+        publication=datetime(2026, 10, 12, 15, 15, tzinfo=BOG),
+    )
+    stats, _notion, metricool, media, slack = _run_schedule(
+        tmp_path, [first, second], dry=False
+    )
+    assert stats["scheduled"] == 1
+    assert stats["skipped"] == 1
+    metricool.create_scheduled_post.assert_called_once()
+    assert media.call_count == 1
+    message = _conflict_message(slack)
+    assert "within 15 minutes" in message
+    assert "Instagram feed" in message
+    assert "https://notion.so/carousel" in message
+    assert "another piece on the same network and format" in message
+    assert "not created" in message
+
+
+def test_same_feed_sixteen_minutes_apart_is_not_a_conflict(tmp_path):
+    first = _sched_row(
+        page_id="3e111111-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/carousel",
+        channel="Instagram",
+        title="Ranking OCDE",
+        caption=_CAROUSEL_CAPTION,
+        content_type="Carrusel",
+        publication=datetime(2026, 10, 12, 15, 0, tzinfo=BOG),
+    )
+    second = _sched_row(
+        page_id="3e222222-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/reel",
+        channel="Instagram",
+        title="The bridge Mexico",
+        caption=_REEL_CAPTION,
+        content_type="Reels",
+        publication=datetime(2026, 10, 12, 15, 16, tzinfo=BOG),
+    )
+    stats, _notion, metricool, _media, slack = _run_schedule(
+        tmp_path, [first, second], dry=False
+    )
+    assert stats["scheduled"] == 2
+    assert stats["skipped"] == 0
+    assert metricool.create_scheduled_post.call_count == 2
+    reasons = [call.kwargs["reason"] for call in slack.call_args_list]
+    assert "slot_conflict" not in reasons
+
+
+def test_metricool_reel_does_not_block_a_story_and_post_blocks_feed(tmp_path):
+    story = _sched_row(
+        page_id="3e111111-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/story",
+        channel="Instagram",
+        title="Historia fiscal",
+        caption=_STORY_CAPTION,
+        content_type="Historias",
+        publication=datetime(2026, 10, 12, 11, 0, tzinfo=BOG),
+    )
+    reel = _post(
+        post_id=55,
+        text=_REEL_CAPTION,
+        when="2026-10-12T11:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+        instagram_type="REEL",
+    )
+    stats, _notion, metricool, _media, slack = _run_schedule(
+        tmp_path, [story], dry=False, posts=[reel]
+    )
+    assert stats["scheduled"] == 1
+    assert stats["skipped"] == 0
+    assert slack.call_args.kwargs["reason"] == "scheduled"
+    assert metricool.create_scheduled_post.call_args.args[0]["instagramData"]["type"] == "STORY"
+
+    carousel = _sched_row(
+        page_id="3e333333-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/carousel",
+        channel="Instagram",
+        title="Ranking OCDE",
+        caption=_CAROUSEL_CAPTION,
+        content_type="Carrusel",
+        publication=datetime(2026, 10, 12, 15, 0, tzinfo=BOG),
+    )
+    feed_reel = _post(
+        post_id=77,
+        text=_REEL_CAPTION,
+        when="2026-10-12T15:10:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+        instagram_type="REEL",
+    )
+    stats, _notion, metricool, media, slack = _run_schedule(
+        tmp_path, [carousel], dry=True, posts=[feed_reel]
+    )
+    assert stats["scheduled"] == 0
+    assert stats["skipped"] == 1
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    message = slack.call_args.kwargs["message"]
+    assert slack.call_args.kwargs["reason"] == "slot_conflict"
+    assert "Instagram feed" in message
+    assert "Metricool 77" in message
+    assert "within 15 minutes" in message
+    assert "different piece" in message
+
+
+def test_trial_reel_conflicts_with_an_existing_instagram_post(tmp_path):
+    row = _sched_row(
+        page_id="3e444444-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/trials",
+        channel="Instagram",
+        title="Trials: cheat codes de Claude",
+        caption=_TRIAL_CAPTION,
+        content_type="Reels",
+        publication=datetime(2026, 10, 12, 18, 0, tzinfo=BOG),
+    )
+    existing = _post(
+        post_id=88,
+        text=_CAROUSEL_CAPTION,
+        when="2026-10-12T18:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+        instagram_type="POST",
+    )
+    stats, _notion, metricool, media, slack = _run_schedule(
+        tmp_path, [row], dry=True, posts=[existing]
+    )
+    assert stats["skipped"] == 1
+    assert stats["scheduled"] == 0
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    message = slack.call_args.kwargs["message"]
+    assert "Instagram feed" in message
+    assert "Metricool 88" in message
+    assert "within 15 minutes" in message
+
+
+def test_tiktok_and_youtube_only_conflict_with_themselves(tmp_path):
+    tiktok = _sched_row(
+        page_id="3e111111-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/tiktok",
+        channel="TikTok",
+        channels=["TikTok"],
+        title="Clip del puente",
+        caption=_REEL_CAPTION,
+        content_type="Reels",
+        publication=datetime(2026, 10, 12, 16, 0, tzinfo=BOG),
+    )
+    youtube = _sched_row(
+        page_id="3e222222-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/youtube",
+        channel="YouTube",
+        channels=["YouTube"],
+        title="Video del puente",
+        caption="Zapatos rojos en la vitrina del museo durante la visita escolar de julio",
+        content_type="Video Largo",
+        cover_text="Hook publico del video",
+        publication=datetime(2026, 10, 12, 16, 0, tzinfo=BOG),
+    )
+    stats, _notion, metricool, _media, slack = _run_schedule(
+        tmp_path, [tiktok, youtube], dry=False
+    )
+    assert stats["scheduled"] == 2
+    assert stats["skipped"] == 0
+    reasons = [call.kwargs["reason"] for call in slack.call_args_list]
+    assert "slot_conflict" not in reasons
+    networks = [
+        {item["network"] for item in call.args[0]["providers"]}
+        for call in metricool.create_scheduled_post.call_args_list
+    ]
+    assert {"tiktok"} in networks
+    assert {"youtube"} in networks
+
+    later = _sched_row(
+        page_id="3e333333-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/tiktok-later",
+        channel="TikTok",
+        channels=["TikTok"],
+        title="Otro clip",
+        caption=_STORY_CAPTION,
+        content_type="Reels",
+        publication=datetime(2026, 10, 12, 16, 10, tzinfo=BOG),
+    )
+    stats, _notion, metricool, media, slack = _run_schedule(
+        tmp_path, [tiktok, later], dry=True
+    )
+    assert stats["scheduled"] == 1
+    assert stats["skipped"] == 1
+    metricool.create_scheduled_post.assert_not_called()
+    assert media.call_count == 1
+    message = _conflict_message(slack)
+    assert "TikTok" in message
+    assert "https://notion.so/tiktok" in message
+    assert "another piece on the same network and format" in message
+    assert "Instagram" not in message
+
+    existing_youtube = _post(
+        post_id=90,
+        text="Receta de ajiaco con pollo guascas y alcaparras para el almuerzo del domingo",
+        when="2026-10-12T16:14:00",
+        providers=[{"network": "youtube", "status": "PENDING"}],
+    )
+    stats, _notion, metricool, media, slack = _run_schedule(
+        tmp_path, [youtube], dry=True, posts=[existing_youtube]
+    )
+    assert stats["skipped"] == 1
+    assert stats["scheduled"] == 0
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    message = slack.call_args.kwargs["message"]
+    assert slack.call_args.kwargs["reason"] == "slot_conflict"
+    assert "YouTube" in message
+    assert "Metricool 90" in message
+    assert "within 15 minutes" in message
+    assert "different piece" in message
+
+
+def test_story_plus_tiktok_conflicts_only_on_the_shared_group(tmp_path):
+    both = _sched_row(
+        page_id="3e111111-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/story-tiktok",
+        channel="Instagram, TikTok",
+        channels=["Instagram", "TikTok"],
+        title="Historia fiscal",
+        caption=_STORY_CAPTION,
+        content_type="Historias",
+        publication=datetime(2026, 10, 12, 17, 0, tzinfo=BOG),
+    )
+    tiktok = _sched_row(
+        page_id="3e222222-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/tiktok-only",
+        channel="TikTok",
+        channels=["TikTok"],
+        title="Clip suelto",
+        caption=_REEL_CAPTION,
+        content_type="Reels",
+        publication=datetime(2026, 10, 12, 17, 5, tzinfo=BOG),
+    )
+    stats, _notion, metricool, _media, slack = _run_schedule(
+        tmp_path, [both, tiktok], dry=False
+    )
+    assert stats["scheduled"] == 1
+    assert stats["skipped"] == 1
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert {item["network"] for item in body["providers"]} == {"instagram", "tiktok"}
+    assert body["instagramData"]["type"] == "STORY"
+    message = _conflict_message(slack)
+    assert "TikTok" in message
+    assert "https://notion.so/story-tiktok" in message
+    assert "Instagram Stories" not in message
+
+    story_again = _sched_row(
+        page_id="3e444444-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/story-tiktok-2",
+        channel="Instagram, TikTok",
+        channels=["Instagram", "TikTok"],
+        title="Historia fiscal",
+        caption=_STORY_CAPTION,
+        content_type="Historias",
+        publication=datetime(2026, 10, 12, 19, 0, tzinfo=BOG),
+    )
+    reel = _sched_row(
+        page_id="3e333333-d217-81ce-a105-edddd431fb7d",
+        url="https://notion.so/reel",
+        channel="Instagram",
+        channels=["Instagram"],
+        title="The bridge Mexico",
+        caption=_REEL_CAPTION,
+        content_type="Reels",
+        publication=datetime(2026, 10, 12, 19, 0, tzinfo=BOG),
+    )
+    stats, _notion, metricool, _media, slack = _run_schedule(
+        tmp_path, [story_again, reel], dry=False
+    )
+    assert stats["scheduled"] == 2
+    assert stats["skipped"] == 0
+    reasons = [call.kwargs["reason"] for call in slack.call_args_list]
+    assert "slot_conflict" not in reasons
+
+
+def test_empty_story_does_not_block_an_instagram_feed_row(tmp_path):
+    row = _fiscal_story_row(
+        content_type="Piezas estática",
+        channels=["Instagram"],
+        channel="Instagram",
+    )
+    story = _empty_instagram_story()
+    stats, _notion, metricool, _media, slack = _run_schedule(
+        tmp_path, [row], dry=False, posts=[story]
+    )
+    assert stats["scheduled"] == 1
+    assert stats["skipped"] == 0
+    assert slack.call_args.kwargs["reason"] == "scheduled"
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert body["instagramData"]["type"] == "POST"

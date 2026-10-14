@@ -98,7 +98,7 @@ def test_exclude_ig_nico_before_media_pipeline():
             "metricool_sync_posts.jobs.schedule.now_in",
             return_value=datetime(2026, 10, 8, 12, 0, tzinfo=ZoneInfo("America/Bogota")),
         ),
-        patch("metricool_sync_posts.jobs.schedule.notify_slack"),
+        patch("metricool_sync_posts.jobs.schedule.notify_slack") as slack,
         patch(
             "metricool_sync_posts.jobs.schedule.calendar_week_bounds",
             return_value=(
@@ -113,7 +113,15 @@ def test_exclude_ig_nico_before_media_pipeline():
             exclude_channels=frozenset({"IG Nico", "Newsletter"}),
         )
 
+    # IG Nico is gone before media. YouTube and Instagram at the same minute
+    # both publish; the second Instagram feed row is a real slot conflict.
     assert stats["queried"] == 3
-    assert prep_media.call_count == 3
+    assert stats["scheduled"] == 2
+    assert stats["skipped"] == 1
     assert stats["errors"] == 0
-    assert stats["scheduled"] == 3
+    assert prep_media.call_count == 2
+    reached = {call.kwargs["notion_page_id"] for call in prep_media.call_args_list}
+    assert "3e999829-d217-81f0-adad-dcd75070ff19" not in reached
+    assert "3f299829-d217-814e-a5ec-d856e45ce5e4" not in reached
+    assert slack.call_args.kwargs["reason"] == "slot_conflict"
+    assert "Instagram feed" in slack.call_args.kwargs["message"]
