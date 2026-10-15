@@ -231,13 +231,134 @@ def build_schedule_body(
         ig_type = infer_instagram_type(title, content_type)
         ig_data: dict[str, Any] = {"type": ig_type, "autoPublish": True}
         if cover_url and ig_type in ("REEL", "TRIAL_REEL"):
-            # Official ScheduledPost schema: thumbnail is top-level, never extra media.
+            # Official ScheduledPost schema: the cover is top-level videoThumbnailUrl,
+            # never a field on instagramData. That URL is shared by every provider.
+            # schedule_bodies() keeps it on Instagram and posts YouTube separately.
             body["videoThumbnailUrl"] = cover_url
         body["instagramData"] = ig_data
     if "tiktok" in chosen and image_only:
         # Swagger ScheduledPostTikTokData.photoCoverIndex: 0 is the first image.
         body["tiktokData"] = {"photoCoverIndex": 0}
     return body
+
+
+# Top-level ScheduledPost fields that would upload or select a cover for every
+# provider. ScheduledPostInstagramData and ScheduledPostYoutubeData have no
+# thumbnail property, and media is a list of URL strings (swagger, 2026-10).
+_SHARED_COVER_KEYS = frozenset(
+    {
+        "videoThumbnailUrl",
+        "videoThumbnail",
+        "thumbnail",
+        "thumbnailUrl",
+        "coverUrl",
+        "videoCoverUrl",
+        "videoCoverMilliseconds",
+    }
+)
+
+
+def _provider_networks(body: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    for provider in body.get("providers") or []:
+        if not isinstance(provider, dict) or not provider.get("network"):
+            continue
+        name = str(provider["network"]).strip().lower()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _copy_post_body(body: dict[str, Any]) -> dict[str, Any]:
+    copied = dict(body)
+    providers = copied.get("providers")
+    if isinstance(providers, list):
+        copied["providers"] = [
+            dict(item) if isinstance(item, dict) else item for item in providers
+        ]
+    media = copied.get("media")
+    if isinstance(media, list):
+        copied["media"] = list(media)
+    for key, value in list(copied.items()):
+        if isinstance(value, dict):
+            copied[key] = dict(value)
+    return copied
+
+
+def _value_set(value: Any) -> bool:
+    return value not in (None, "", [], {})
+
+
+def _has_shared_cover(body: dict[str, Any]) -> bool:
+    """True when a top-level cover would be sent with every provider."""
+    for key, value in body.items():
+        if str(key).endswith("Data") or not _value_set(value):
+            continue
+        folded = str(key).lower()
+        if key in _SHARED_COVER_KEYS or "thumbnail" in folded or folded.endswith("coverurl"):
+            return True
+    return False
+
+
+def _without_youtube_cover(body: dict[str, Any]) -> dict[str, Any]:
+    """YouTube post: the video only, so YouTube generates the frame."""
+    cleaned = _copy_post_body(body)
+    for key in list(cleaned):
+        folded = str(key).lower()
+        if key in _SHARED_COVER_KEYS or "thumbnail" in folded or folded.endswith("coverurl"):
+            cleaned.pop(key, None)
+    cleaned["providers"] = [{"network": "youtube"}]
+    for key in list(cleaned):
+        if str(key).endswith("Data") and key != "youtubeData":
+            cleaned.pop(key, None)
+    youtube = cleaned.get("youtubeData")
+    if isinstance(youtube, dict):
+        cleaned["youtubeData"] = {
+            key: value
+            for key, value in youtube.items()
+            if "thumb" not in key.lower() and "cover" not in key.lower()
+        }
+    return cleaned
+
+
+def _strip_youtube_data_cover(body: dict[str, Any]) -> dict[str, Any]:
+    youtube = body.get("youtubeData")
+    if not isinstance(youtube, dict):
+        return body
+    kept = {
+        key: value
+        for key, value in youtube.items()
+        if "thumb" not in key.lower() and "cover" not in key.lower()
+    }
+    if kept == youtube:
+        return body
+    copied = _copy_post_body(body)
+    copied["youtubeData"] = kept
+    return copied
+
+
+def schedule_bodies(body: dict[str, Any]) -> list[dict[str, Any]]:
+    """Posts to create for one Notion row.
+
+    ``videoThumbnailUrl`` is one string on the whole ScheduledPost. Instagram
+    reel covers use it (4:5). YouTube has no separate thumbnail field, so a
+    combined post would upload that same image as the YouTube thumbnail.
+    When the row has both, YouTube is its own post with every cover field
+    omitted and the other networks keep the reel cover.
+    """
+    networks = _provider_networks(body)
+    if "youtube" not in networks:
+        return [body]
+    stripped = _strip_youtube_data_cover(body)
+    if not _has_shared_cover(stripped):
+        return [stripped]
+    others = [network for network in networks if network != "youtube"]
+    if not others:
+        return [_without_youtube_cover(stripped)]
+    kept = _copy_post_body(stripped)
+    kept["providers"] = [{"network": network} for network in others]
+    kept.pop("youtubeData", None)
+    return [kept, _without_youtube_cover(stripped)]
 
 
 def merge_publication_date(

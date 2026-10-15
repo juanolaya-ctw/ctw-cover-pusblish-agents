@@ -14,10 +14,12 @@ from metricool_sync_posts.jobs.common import (
 from metricool_sync_posts.media.expiry import due_within_24h, media_url_live, post_media_urls
 from metricool_sync_posts.metricool.client import MetricoolClient
 from metricool_sync_posts.metricool.matching import (
+    combined_post_state,
     find_best_match,
     find_sync_match,
     post_publication_datetime,
     post_state,
+    youtube_split_companions,
 )
 from metricool_sync_posts.notion.client import NotionRepository
 from metricool_sync_posts.slack.dedupe import DedupeStore
@@ -155,7 +157,14 @@ def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) ->
                     stats["skipped"] += 1
                     logger.info("No Metricool match for Notion page %s", row.page_id)
                 continue
-            state = post_state(match)
+            # A reel cover and YouTube are two posts. Both have to be published.
+            group = youtube_split_companions(
+                match,
+                mc_posts,
+                notion_channel=row.channel,
+                tz_name=settings.timezone,
+            )
+            state = combined_post_state(group)
             if state == "ERROR":
                 stats["blockers"] += 1
                 notify_slack(
@@ -177,18 +186,22 @@ def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) ->
                 continue
             # PENDING, SCHEDULED, UNKNOWN: a found post is not confirmation.
             # UNKNOWN used to be treated as published once the date was past.
+            # A YouTube thumbnail warning is PUBLISHED, so it does not alert.
             if state == "PENDING":
-                mc_pub = post_publication_datetime(match, settings.timezone)
-                _warn_if_media_expired(
-                    settings=settings,
-                    dedupe=dedupe,
-                    row=row,
-                    post=match,
-                    publication=mc_pub or pub,
-                    now=now,
-                    dry=dry,
-                    stats=stats,
-                )
+                for item in group:
+                    if post_state(item) != "PENDING":
+                        continue
+                    mc_pub = post_publication_datetime(item, settings.timezone)
+                    _warn_if_media_expired(
+                        settings=settings,
+                        dedupe=dedupe,
+                        row=row,
+                        post=item,
+                        publication=mc_pub or pub,
+                        now=now,
+                        dry=dry,
+                        stats=stats,
+                    )
             stats["pending"] += 1
         except Exception:
             stats["errors"] += 1
