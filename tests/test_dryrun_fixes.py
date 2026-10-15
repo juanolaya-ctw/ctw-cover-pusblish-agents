@@ -657,7 +657,15 @@ def test_miniatura_and_empty_media_are_not_scheduled(tmp_path):
     notion.set_status.assert_not_called()
     media.assert_not_called()
     reasons = {call.kwargs["reason"] for call in slack.call_args_list}
-    assert reasons == {"miniatura_not_a_post", "missing_media"}
+    assert reasons == {"miniatura_not_a_post", "invalid_archivo_final"}
+    empty_alert = next(
+        call.kwargs
+        for call in slack.call_args_list
+        if call.kwargs["reason"] == "invalid_archivo_final"
+    )
+    assert '"Archivo Final" no tiene un link' in empty_alert["message"]
+    assert empty.url in empty_alert["message"]
+    assert "Contiene: (vacío)" in empty_alert["message"]
 
 
 def test_ig_nico_and_linkedin_canals_never_reach_media(tmp_path):

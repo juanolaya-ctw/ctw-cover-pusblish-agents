@@ -53,7 +53,7 @@ def resolve_source_media(
 ) -> list[SourceMedia]:
     """Notion Archivo Final → media items, including Drive size and mime when known."""
     ref = classify_final_file(raw_url)
-    if ref.kind == FinalFileKind.EMPTY:
+    if ref.kind in {FinalFileKind.EMPTY, FinalFileKind.INVALID}:
         return []
     if ref.kind == FinalFileKind.YOUTUBE:
         return [SourceMedia(url=ref.raw_url)]
@@ -168,7 +168,7 @@ def prepare_media_urls_for_metricool(
 ) -> list[str]:
     """Download/normalize each resolved URL; return Metricool-ready media URLs."""
     ref = classify_final_file(raw_archivo_final)
-    if ref.kind == FinalFileKind.EMPTY:
+    if ref.kind in {FinalFileKind.EMPTY, FinalFileKind.INVALID}:
         return []
     if ref.kind == FinalFileKind.YOUTUBE:
         return [ref.raw_url]
