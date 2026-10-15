@@ -215,6 +215,78 @@ def test_provider_status_and_networks_ignore_empty_twitter_data():
     )
     assert post_state(failed) == "ERROR"
 
+    warning = (
+        "published with some warnings: Could not upload video thumbnail"
+    )
+    thumbnail_only = _post(
+        post_id=31,
+        text="x",
+        when="2026-10-09T09:00:00",
+        providers=[
+            {
+                "network": "youtube",
+                "status": "ERROR",
+                "detailedStatus": warning,
+            }
+        ],
+    )
+    assert post_state(thumbnail_only) == "PUBLISHED"
+    published_with_ig = _post(
+        post_id=32,
+        text="x",
+        when="2026-10-09T09:00:00",
+        providers=[
+            {"network": "instagram", "status": "PUBLISHED"},
+            {
+                "network": "youtube",
+                "status": "ERROR",
+                "error": {"message": warning},
+            },
+        ],
+    )
+    assert post_state(published_with_ig) == "PUBLISHED"
+    still_broken = _post(
+        post_id=33,
+        text="x",
+        when="2026-10-09T09:00:00",
+        providers=[
+            {"network": "instagram", "status": "PUBLISHED"},
+            {
+                "network": "youtube",
+                "status": "ERROR",
+                "detailedStatus": "Could not upload video thumbnail",
+            },
+        ],
+    )
+    assert post_state(still_broken) == "ERROR"
+    not_youtube = _post(
+        post_id=34,
+        text="x",
+        when="2026-10-09T09:00:00",
+        providers=[
+            {
+                "network": "instagram",
+                "status": "ERROR",
+                "detailedStatus": warning,
+            }
+        ],
+    )
+    assert post_state(not_youtube) == "ERROR"
+    other_youtube_error = _post(
+        post_id=35,
+        text="x",
+        when="2026-10-09T09:00:00",
+        providers=[
+            {
+                "network": "youtube",
+                "status": "ERROR",
+                "detailedStatus": "Video rejected",
+            }
+        ],
+    )
+    other_youtube_error["error"] = warning
+    assert post_state(other_youtube_error) == "ERROR"
+
     publishing = _post(
         post_id=4,
         text="x",
@@ -2215,3 +2287,289 @@ def test_empty_story_does_not_block_an_instagram_feed_row(tmp_path):
     assert slack.call_args.kwargs["reason"] == "scheduled"
     body = metricool.create_scheduled_post.call_args.args[0]
     assert body["instagramData"]["type"] == "POST"
+
+
+_THUMB_WARNING = "published with some warnings: Could not upload video thumbnail"
+_SPLIT_CAPTION = (
+    "un reel que sale en instagram y en youtube con el mismo texto de la pieza"
+)
+
+
+def test_confirm_treats_youtube_thumbnail_warning_as_published(tmp_path):
+    text = "el video de youtube ya salio y solo fallo la miniatura personalizada"
+    row = _programado(
+        "page-yt",
+        text,
+        datetime(2026, 10, 8, 12, tzinfo=BOG),
+        channel="YouTube",
+    )
+    post = _post(
+        post_id=77,
+        text=text,
+        when="2026-10-08T12:00:00",
+        providers=[
+            {
+                "network": "youtube",
+                "status": "ERROR",
+                "detailedStatus": _THUMB_WARNING,
+            }
+        ],
+    )
+    settings = _settings(tmp_path, SLACK_WEBHOOK_URL="https://hooks.slack.test/abc")
+    notion, metricool = MagicMock(), MagicMock()
+    notion.fetch_scheduled_in_window.return_value = [row]
+    metricool.get_scheduled_posts.return_value = [post]
+    with (
+        patch(
+            "metricool_sync_posts.jobs.confirm_published.NotionRepository",
+            return_value=notion,
+        ),
+        patch(
+            "metricool_sync_posts.jobs.confirm_published.MetricoolClient",
+            return_value=metricool,
+        ),
+        patch("metricool_sync_posts.jobs.confirm_published.now_in", return_value=NOW),
+        patch("metricool_sync_posts.jobs.confirm_published.notify_slack") as slack,
+    ):
+        stats = run_confirm_published(settings=settings, dry_run=False)
+    assert stats["published"] == 1
+    assert stats["blockers"] == 0
+    notion.set_status.assert_called_once_with("page-yt", "Publicado", dry_run=False)
+    slack.assert_not_called()
+
+
+def test_confirm_still_alerts_on_a_real_youtube_error(tmp_path):
+    text = "este video de youtube fallo de verdad y no debe pasar a publicado"
+    row = _programado(
+        "page-yt-err",
+        text,
+        datetime(2026, 10, 8, 12, tzinfo=BOG),
+        channel="YouTube",
+    )
+    post = _post(
+        post_id=78,
+        text=text,
+        when="2026-10-08T12:00:00",
+        providers=[
+            {
+                "network": "youtube",
+                "status": "ERROR",
+                "detailedStatus": "Could not upload video thumbnail",
+            }
+        ],
+    )
+    settings = _settings(tmp_path, SLACK_WEBHOOK_URL="https://hooks.slack.test/abc")
+    notion, metricool = MagicMock(), MagicMock()
+    notion.fetch_scheduled_in_window.return_value = [row]
+    metricool.get_scheduled_posts.return_value = [post]
+    with (
+        patch(
+            "metricool_sync_posts.jobs.confirm_published.NotionRepository",
+            return_value=notion,
+        ),
+        patch(
+            "metricool_sync_posts.jobs.confirm_published.MetricoolClient",
+            return_value=metricool,
+        ),
+        patch("metricool_sync_posts.jobs.confirm_published.now_in", return_value=NOW),
+        patch("metricool_sync_posts.jobs.confirm_published.notify_slack") as slack,
+    ):
+        stats = run_confirm_published(settings=settings, dry_run=False)
+    assert stats["published"] == 0
+    assert stats["blockers"] == 1
+    notion.set_status.assert_not_called()
+    assert slack.call_args.kwargs["reason"] == "metricool_error"
+
+
+def test_confirm_waits_for_both_halves_of_a_youtube_split(tmp_path):
+    row = _programado(
+        "page-split",
+        _SPLIT_CAPTION,
+        datetime(2026, 10, 8, 12, tzinfo=BOG),
+        channel="Instagram, YouTube",
+    )
+    instagram = _post(
+        post_id=81,
+        text=_SPLIT_CAPTION,
+        when="2026-10-08T12:00:00",
+        providers=[{"network": "instagram", "status": "PUBLISHED"}],
+    )
+    instagram["videoThumbnailUrl"] = "https://static.metricool.com/cover.jpg"
+    pending_youtube = _post(
+        post_id=82,
+        text=_SPLIT_CAPTION,
+        when="2026-10-08T12:00:00",
+        providers=[{"network": "youtube", "status": "PENDING"}],
+    )
+    settings = _settings(tmp_path, SLACK_WEBHOOK_URL="https://hooks.slack.test/abc")
+    notion, metricool = MagicMock(), MagicMock()
+    notion.fetch_scheduled_in_window.return_value = [row]
+    metricool.get_scheduled_posts.return_value = [instagram, pending_youtube]
+    with (
+        patch(
+            "metricool_sync_posts.jobs.confirm_published.NotionRepository",
+            return_value=notion,
+        ),
+        patch(
+            "metricool_sync_posts.jobs.confirm_published.MetricoolClient",
+            return_value=metricool,
+        ),
+        patch("metricool_sync_posts.jobs.confirm_published.now_in", return_value=NOW),
+        patch("metricool_sync_posts.jobs.confirm_published.notify_slack") as slack,
+    ):
+        stats = run_confirm_published(settings=settings, dry_run=False)
+    assert stats["published"] == 0
+    assert stats["pending"] == 1
+    assert stats["blockers"] == 0
+    notion.set_status.assert_not_called()
+    slack.assert_not_called()
+
+    warned = _post(
+        post_id=83,
+        text=_SPLIT_CAPTION,
+        when="2026-10-08T12:00:00",
+        providers=[
+            {
+                "network": "youtube",
+                "status": "ERROR",
+                "detailedStatus": _THUMB_WARNING,
+            }
+        ],
+    )
+    metricool.get_scheduled_posts.return_value = [instagram, warned]
+    with (
+        patch(
+            "metricool_sync_posts.jobs.confirm_published.NotionRepository",
+            return_value=notion,
+        ),
+        patch(
+            "metricool_sync_posts.jobs.confirm_published.MetricoolClient",
+            return_value=metricool,
+        ),
+        patch("metricool_sync_posts.jobs.confirm_published.now_in", return_value=NOW),
+        patch("metricool_sync_posts.jobs.confirm_published.notify_slack") as slack,
+    ):
+        stats = run_confirm_published(settings=settings, dry_run=False)
+    assert stats["published"] == 1
+    assert stats["blockers"] == 0
+    notion.set_status.assert_called_once_with("page-split", "Publicado", dry_run=False)
+    slack.assert_not_called()
+
+
+def test_reel_with_youtube_keeps_the_cover_and_posts_youtube_without_it(tmp_path):
+    row = _sched_row(
+        channel=None,
+        channels=["Instagram", "Youtube Shorts"],
+        content_type="Reels",
+        cover_text="Hook del short",
+        miniatura_url="https://static.metricool.com/video/1/cover.jpg",
+        caption=_SPLIT_CAPTION,
+    )
+    stats, notion, metricool, _media, slack = _run_schedule(tmp_path, [row], dry=False)
+    assert stats["scheduled"] == 1
+    assert stats["errors"] == 0
+    assert metricool.create_scheduled_post.call_count == 2
+    bodies = [call.args[0] for call in metricool.create_scheduled_post.call_args_list]
+    instagram = next(
+        body for body in bodies if body["providers"] == [{"network": "instagram"}]
+    )
+    youtube = next(
+        body for body in bodies if body["providers"] == [{"network": "youtube"}]
+    )
+    assert instagram["videoThumbnailUrl"] == "https://static.metricool.com/video/1/cover.jpg"
+    assert instagram["instagramData"]["type"] == "REEL"
+    assert "youtubeData" not in instagram
+    assert youtube["youtubeData"]["type"] == "short"
+    assert youtube["youtubeData"]["title"] == "Hook del short"
+    assert "videoThumbnailUrl" not in youtube
+    assert "thumbnail" not in youtube["youtubeData"]
+    assert "instagramData" not in youtube
+    notion.set_status.assert_called_once_with(row.page_id, "Programado", dry_run=False)
+    assert slack.call_args.kwargs["reason"] == "scheduled"
+
+    bare = _sched_row(
+        page_id="3f299829-d217-81cf-83ee-e66e8ef5139d",
+        channel=None,
+        channels=["Instagram", "YouTube"],
+        content_type="Reels",
+        cover_text="Sin portada",
+        caption="otro reel sin miniatura que puede ir junto a youtube",
+    )
+    stats, _notion, metricool, _media, _slack = _run_schedule(tmp_path, [bare], dry=False)
+    assert stats["scheduled"] == 1
+    assert metricool.create_scheduled_post.call_count == 1
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert [item["network"] for item in body["providers"]] == ["instagram", "youtube"]
+    assert "videoThumbnailUrl" not in body
+    assert body["youtubeData"]["type"] == "video"
+
+
+def test_existing_youtube_split_is_reconciled_not_ambiguous(tmp_path):
+    row = _sched_row(
+        channel=None,
+        channels=["Instagram", "YouTube"],
+        content_type="Reels",
+        cover_text="Hook publico",
+        caption=_SPLIT_CAPTION,
+        publication=datetime(2026, 10, 10, 15, 0, tzinfo=BOG),
+    )
+    instagram = _post(
+        post_id=91,
+        text=_SPLIT_CAPTION,
+        when="2026-10-10T15:00:00",
+        providers=[{"network": "instagram", "status": "PUBLISHED"}],
+    )
+    instagram["videoThumbnailUrl"] = "https://static.metricool.com/cover.jpg"
+    youtube = _post(
+        post_id=92,
+        text=_SPLIT_CAPTION,
+        when="2026-10-10T15:00:00",
+        providers=[
+            {
+                "network": "youtube",
+                "status": "ERROR",
+                "detailedStatus": _THUMB_WARNING,
+            }
+        ],
+    )
+    stats, notion, metricool, media, slack = _run_schedule(
+        tmp_path, [row], dry=False, posts=[instagram, youtube]
+    )
+    assert stats["scheduled"] == 0
+    assert stats["reconciled"] == 1
+    assert stats["skipped"] == 0
+    metricool.create_scheduled_post.assert_not_called()
+    media.assert_not_called()
+    notion.set_status.assert_called_once_with(row.page_id, "Publicado", dry_run=False)
+    reasons = [call.kwargs["reason"] for call in slack.call_args_list]
+    assert "ambiguous_duplicate" not in reasons
+    assert "metricool_duplicate_error" not in reasons
+
+
+def test_partial_cover_split_creates_only_the_youtube_post(tmp_path):
+    row = _sched_row(
+        channel=None,
+        channels=["Instagram", "YouTube"],
+        content_type="Reels",
+        cover_text="Hook publico",
+        caption=_SPLIT_CAPTION,
+    )
+    instagram = _post(
+        post_id=93,
+        text=_SPLIT_CAPTION,
+        when="2026-10-10T15:00:00",
+        providers=[{"network": "instagram", "status": "PENDING"}],
+    )
+    instagram["videoThumbnailUrl"] = "https://static.metricool.com/cover.jpg"
+    stats, notion, metricool, _media, _slack = _run_schedule(
+        tmp_path, [row], dry=False, posts=[instagram]
+    )
+    assert stats["scheduled"] == 1
+    assert stats["reconciled"] == 0
+    metricool.create_scheduled_post.assert_called_once()
+    body = metricool.create_scheduled_post.call_args.args[0]
+    assert body["providers"] == [{"network": "youtube"}]
+    assert "videoThumbnailUrl" not in body
+    assert "thumbnail" not in body["youtubeData"]
+    assert body["youtubeData"]["title"] == "Hook publico"
+    notion.set_status.assert_called_once_with(row.page_id, "Programado", dry_run=False)

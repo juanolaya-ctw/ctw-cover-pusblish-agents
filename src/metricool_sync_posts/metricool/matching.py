@@ -290,10 +290,84 @@ def post_networks(post: dict[str, Any]) -> set[str]:
     return nets
 
 
+# Metricool still publishes the video when the custom thumbnail upload fails.
+# The provider stays ERROR, and detailedStatus (or error) carries this warning.
+_YOUTUBE_THUMBNAIL_WARNING_PREFIX = "published with some warnings"
+_YOUTUBE_THUMBNAIL_WARNING_DETAIL = "could not upload video thumbnail"
+
+
+def _fold_status_text(text: str) -> str:
+    return " ".join(text.lower().split()).replace(" :", ":")
+
+
+def _collect_status_text(value: Any, parts: list[str]) -> None:
+    if isinstance(value, str) and value.strip():
+        parts.append(value.strip())
+        return
+    if isinstance(value, dict):
+        for key in ("message", "error", "detail", "detailedStatus", "status"):
+            _collect_status_text(value.get(key), parts)
+
+
+def _post_status_text(post: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in (
+        "detailedStatus",
+        "error",
+        "errorMessage",
+        "message",
+        "state",
+        "status",
+        "publicationStatus",
+        "postStatus",
+    ):
+        _collect_status_text(post.get(key), parts)
+    return _fold_status_text(" ".join(parts))
+
+
+def _is_thumbnail_warning(text: str) -> bool:
+    folded = _fold_status_text(text)
+    return (
+        _YOUTUBE_THUMBNAIL_WARNING_PREFIX in folded
+        and _YOUTUBE_THUMBNAIL_WARNING_DETAIL in folded
+    )
+
+
+def _provider_detail_text(provider: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ("detailedStatus", "error", "errorMessage", "message"):
+        _collect_status_text(provider.get(key), parts)
+    return _fold_status_text(" ".join(parts))
+
+
+def _youtube_thumbnail_warning(provider: dict[str, Any], post_text: str) -> bool:
+    """YouTube published, and the only failure was the custom thumbnail.
+
+    A detail string on the provider wins. The post-level error is used only
+    when the provider itself does not explain the ERROR.
+    """
+    network = str(provider.get("network") or "").strip().lower()
+    if network != "youtube":
+        return False
+    detail = _provider_detail_text(provider)
+    if detail:
+        return _is_thumbnail_warning(detail)
+    raw = provider.get("status")
+    status = raw.strip() if isinstance(raw, str) else ""
+    if _is_thumbnail_warning(status):
+        return True
+    upper = status.upper()
+    return ("ERROR" in upper or "FAIL" in upper) and _is_thumbnail_warning(post_text)
+
+
 def _provider_statuses(post: dict[str, Any]) -> list[str]:
+    post_text = _post_status_text(post)
     statuses: list[str] = []
     for provider in post.get("providers") or []:
         if not isinstance(provider, dict):
+            continue
+        if _youtube_thumbnail_warning(provider, post_text):
+            statuses.append("PUBLISHED")
             continue
         raw = provider.get("status")
         if isinstance(raw, str) and raw.strip():
@@ -307,6 +381,10 @@ def post_state(post: dict[str, Any]) -> str:
     Live payloads put status on each provider (PUBLISHED / PENDING / ERROR / …),
     not on the post. Top-level ``state``/``status`` is only a fallback for
     fixtures that predate that shape.
+
+    A YouTube provider whose error is ``published with some warnings: Could not
+    upload video thumbnail`` counts as PUBLISHED. The video is up; YouTube
+    generated the frame after the custom thumbnail failed.
     """
     statuses = _provider_statuses(post)
     if statuses:
@@ -320,6 +398,9 @@ def post_state(post: dict[str, Any]) -> str:
         ):
             return "PENDING"
         return "UNKNOWN"
+
+    if "youtube" in post_networks(post) and _is_thumbnail_warning(_post_status_text(post)):
+        return "PUBLISHED"
 
     for field in ("state", "status", "publicationStatus", "postStatus"):
         val = post.get(field)
@@ -339,6 +420,126 @@ def post_state(post: dict[str, Any]) -> str:
     if published is False:
         return "SCHEDULED"
     return "UNKNOWN"
+
+
+def combined_post_state(posts: list[dict[str, Any]]) -> str:
+    """One state for a Notion row that became more than one Metricool post.
+
+    A single post keeps ``post_state`` (SCHEDULED is not rewritten to PENDING).
+    Across a YouTube/cover split, any real ERROR blocks, and the row is
+    PUBLISHED only when every half is.
+    """
+    states = [post_state(post) for post in posts]
+    if len(states) == 1:
+        return states[0]
+    if not states:
+        return "UNKNOWN"
+    if any(state == "ERROR" for state in states):
+        return "ERROR"
+    if all(state == "PUBLISHED" for state in states):
+        return "PUBLISHED"
+    if any(state in {"PENDING", "SCHEDULED"} for state in states):
+        return "PENDING"
+    return "UNKNOWN"
+
+
+def _post_has_thumbnail(post: dict[str, Any]) -> bool:
+    for key in ("videoThumbnailUrl", "videoThumbnail", "thumbnail", "thumbnailUrl", "coverUrl"):
+        if _value_present(post.get(key)):
+            return True
+    return False
+
+
+def _value_present(value: Any) -> bool:
+    return value not in (None, "", [], {})
+
+
+def covers_youtube_split(posts: list[dict[str, Any]], wanted: set[str]) -> bool:
+    """True when ``posts`` are the two halves of one YouTube/cover row.
+
+    Networks do not overlap, one post is YouTube only, and together they are
+    exactly the networks the Notion row asked for. That is the same piece, not
+    an ambiguous duplicate.
+    """
+    if len(posts) < 2 or not wanted or "youtube" not in wanted:
+        return False
+    seen: set[str] = set()
+    youtube_only = False
+    for post in posts:
+        nets = post_networks(post)
+        if not nets or nets & seen or not nets <= wanted:
+            return False
+        if nets == {"youtube"}:
+            youtube_only = True
+        seen |= nets
+    return youtube_only and wanted <= seen
+
+
+def missing_youtube_split_networks(
+    posts: list[dict[str, Any]],
+    wanted: set[str],
+) -> set[str] | None:
+    """Networks still to create for a partial YouTube/cover split.
+
+    ``None`` means this is not that case (reconcile or skip as before). A
+    YouTube-only post, or a post that already carries the reel cover and is
+    not on YouTube, is one half. The other half can still be created.
+    """
+    if not posts or "youtube" not in wanted or len(wanted) < 2:
+        return None
+    seen: set[str] = set()
+    youtube_only = False
+    cover_half = False
+    for post in posts:
+        nets = post_networks(post)
+        if not nets or nets & seen or not nets <= wanted:
+            return None
+        if nets == {"youtube"}:
+            youtube_only = True
+        elif "youtube" not in nets and _post_has_thumbnail(post):
+            cover_half = True
+        else:
+            return None
+        seen |= nets
+    missing = wanted - seen
+    if not missing or not (youtube_only or cover_half):
+        return None
+    return missing
+
+
+def youtube_split_companions(
+    match: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    *,
+    notion_channel: str | None,
+    tz_name: str,
+) -> list[dict[str, Any]]:
+    """``match`` plus the other half of a YouTube/cover split.
+
+    Both posts share the caption and the Metricool publication time. One of
+    them is YouTube only. Instagram-only rows do not pick up a YouTube post.
+    """
+    group = [match]
+    anchor = post_publication_datetime(match, tz_name)
+    anchor_text = normalize_text(str(match.get("text") or ""))
+    if anchor is None or not anchor_text:
+        return group
+    for post in candidates:
+        if any(same_metricool_post(post, existing) for existing in group):
+            continue
+        if not _network_compatible(post, notion_channel):
+            continue
+        when = post_publication_datetime(post, tz_name)
+        if when is None or not dates_equal_within_minutes(anchor, when, minutes=5):
+            continue
+        if normalize_text(str(post.get("text") or "")) != anchor_text:
+            continue
+        nets = post_networks(post)
+        if not nets or any(nets & post_networks(existing) for existing in group):
+            continue
+        if nets == {"youtube"} or any(post_networks(existing) == {"youtube"} for existing in group):
+            group.append(post)
+    return group
 
 
 def _post_text_fields(post: dict[str, Any]) -> list[str]:

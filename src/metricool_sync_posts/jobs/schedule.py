@@ -22,6 +22,7 @@ from metricool_sync_posts.jobs.content_types import (
     is_story_type,
     partition_image_networks,
     publication_format_groups,
+    schedule_bodies,
     video_network_skip_reason,
 )
 from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
@@ -33,15 +34,17 @@ from metricool_sync_posts.metricool.client import MetricoolClient
 from metricool_sync_posts.metricool.matching import (
     SLOT_MATCH_MINUTES,
     claim_keys_for_post,
+    combined_post_state,
+    covers_youtube_split,
     describe_format_groups,
     find_duplicate_candidates,
     find_slot_occupants,
     format_match_evidence,
+    missing_youtube_split_networks,
     nearest_network_post,
     post_copy_is_thin,
     post_format_groups,
     post_stable_uuid,
-    post_state,
     slot_occupant_blocks,
 )
 from metricool_sync_posts.metricool.profiles import load_connected_networks
@@ -317,10 +320,16 @@ def _reconcile_existing(
     row,
     post: dict,
     dry: bool,
+    posts: list[dict] | None = None,
 ) -> None:
     """Point Notion at the post that already exists. Never creates another one."""
-    state = post_state(post)
-    post_id = post.get("id") or post.get("postId")
+    group = posts or [post]
+    state = combined_post_state(group)
+    post_id = ", ".join(
+        str(item.get("id") or item.get("postId") or "")
+        for item in group
+        if item.get("id") or item.get("postId")
+    )
     if state == "ERROR":
         logger.error(
             "BLOCKER: Metricool post %s for %s has a provider ERROR; left as %s",
@@ -525,6 +534,7 @@ def run_schedule(
                 )
                 continue
             networks = list(plan.networks)
+            completing_split = False
             pub = publication_dt(row, settings.timezone)
             if pub is None:
                 stats["skipped"] += 1
@@ -584,7 +594,50 @@ def run_schedule(
                     media_urls=[row.final_file_url] if row.final_file_url else None,
                 )
                 hits = [hit for hit in raw_hits if not _claimed_by(claimed, hit)]
-                if len(hits) > 1:
+                if hits and covers_youtube_split(hits, set(networks)):
+                    for hit in hits:
+                        logger.info(
+                            "Match Notion %s -> Metricool %s %s",
+                            row.page_id,
+                            _post_key(hit),
+                            format_match_evidence(
+                                hit,
+                                caption=caption,
+                                title=row.title,
+                                tz_name=settings.timezone,
+                                notion_publication=pub,
+                                networks=networks,
+                                media_urls=(
+                                    [row.final_file_url] if row.final_file_url else None
+                                ),
+                            ),
+                        )
+                    _reconcile_existing(
+                        settings=settings,
+                        notion=notion,
+                        dedupe=dedupe,
+                        row=row,
+                        post=hits[0],
+                        posts=hits,
+                        dry=dry,
+                    )
+                    for hit in hits:
+                        _remember_claim(claimed, hit, row.page_id)
+                    stats["reconciled"] += 1
+                    continue
+                missing_split = missing_youtube_split_networks(hits, set(networks))
+                if missing_split:
+                    logger.info(
+                        "Schedule %s is missing %s after a YouTube/cover split; "
+                        "creating only that half",
+                        row.page_id,
+                        sorted(missing_split),
+                    )
+                    networks = [net for net in networks if net in missing_split]
+                    completing_split = True
+                    for hit in hits:
+                        _remember_claim(claimed, hit, row.page_id)
+                elif len(hits) > 1:
                     stats["skipped"] += 1
                     for hit in hits:
                         logger.info(
@@ -622,7 +675,7 @@ def run_schedule(
                         dry_run=dry,
                     )
                     continue
-                if len(hits) == 1:
+                if len(hits) == 1 and not completing_split:
                     chosen = hits[0]
                     logger.info(
                         "Match Notion %s -> Metricool %s %s",
@@ -811,7 +864,11 @@ def run_schedule(
                     dry_run=dry,
                 )
                 continue
-            if not dry and guard.contains(settings.metricool_blog_id, row.page_id):
+            if (
+                not dry
+                and not completing_split
+                and guard.contains(settings.metricool_blog_id, row.page_id)
+            ):
                 stats["skipped"] += 1
                 logger.warning(
                     "Skip %s: prior schedule attempt; reconcile before retry", row.page_id
@@ -959,15 +1016,36 @@ def run_schedule(
                 youtube_short=plan.youtube_short,
                 youtube_title=hook,
             )
+            # videoThumbnailUrl is shared by every provider. Instagram keeps the
+            # reel cover; YouTube is a second post with no thumbnail fields.
+            bodies = schedule_bodies(body)
+            if len(bodies) > 1:
+                logger.info(
+                    "Split %s: reel cover stays on %s; YouTube is a separate post "
+                    "without a thumbnail",
+                    row.page_id,
+                    [item.get("network") for item in bodies[0].get("providers") or []],
+                )
             if dry:
-                logger.info("[dry-run] Would schedule Metricool post for %s", row.page_id)
+                if len(bodies) == 1:
+                    logger.info("[dry-run] Would schedule Metricool post for %s", row.page_id)
+                else:
+                    logger.info(
+                        "[dry-run] Would schedule %s Metricool posts for %s",
+                        len(bodies),
+                        row.page_id,
+                    )
             else:
                 # Reserve BEFORE POST: timeout/Notion failure must never auto-resend.
-                if not guard.reserve(settings.metricool_blog_id, row.page_id):
+                # Completing a split reuses the reservation from the half that
+                # already exists, and creates only the missing network.
+                reserved = guard.reserve(settings.metricool_blog_id, row.page_id)
+                if not reserved and not completing_split:
                     stats["skipped"] += 1
                     continue
-                metricool.create_scheduled_post(body)
-                # Status flips only after the create call returns. A failed create
+                for part in bodies:
+                    metricool.create_scheduled_post(part)
+                # Status flips only after every create returns. A failed create
                 # raises above and leaves Notion on Aprobado.
                 notion.set_status(row.page_id, settings.notion_status_scheduled, dry_run=False)
             stats["scheduled"] += 1
