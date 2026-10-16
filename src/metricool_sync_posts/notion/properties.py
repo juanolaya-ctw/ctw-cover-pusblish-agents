@@ -58,6 +58,22 @@ def read_protagonistas_label(props: dict[str, Any], name: str) -> str:
     return ", ".join(read_multi_select(props, name))
 
 
+def read_link_or_text(props: dict[str, Any], name: str) -> str | None:
+    """URL value, or the plain text when the cell is a title instead of a link.
+
+    Archivo Final is a Notion ``url`` property, which still accepts a clip title
+    or a host with no ``http://`` / ``https://``. Rich text is kept too, so the
+    scheduler can show what the cell actually contains.
+    """
+    url = read_url(props, name)
+    if isinstance(url, str) and url.strip():
+        return url.strip()
+    text = read_rich_text(props, name)
+    if text:
+        return text
+    return None
+
+
 def read_url(props: dict[str, Any], name: str) -> str | None:
     p = _prop(props, name)
     if not p:
@@ -208,7 +224,7 @@ def row_from_page(page: dict[str, Any], settings_names: dict[str, str]) -> Notio
         channel=_first_channel(props, settings_names["channel"]),
         channels=read_channel_names(props, settings_names["channel"]),
         caption=caption,
-        final_file_url=read_url(props, settings_names["final_file"]),
+        final_file_url=read_link_or_text(props, settings_names["final_file"]),
         title=_first_or_rich_title(props, settings_names["title"]),
         content_type=_content_type_label(props, settings_names["content_type"]),
         miniatura_url=read_url(props, settings_names["miniatura"]),

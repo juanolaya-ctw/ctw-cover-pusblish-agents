@@ -27,7 +27,11 @@ from metricool_sync_posts.jobs.content_types import (
 )
 from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
 from metricool_sync_posts.media.errors import MediaHostError
-from metricool_sync_posts.media.final_file import FinalFileKind, classify_final_file
+from metricool_sync_posts.media.final_file import (
+    FinalFileKind,
+    classify_final_file,
+    invalid_archivo_final_message,
+)
 from metricool_sync_posts.media.resolve import prepare_media_urls_for_metricool
 from metricool_sync_posts.metricool.channels import canal_labels, normalize_channel, plan_canals
 from metricool_sync_posts.metricool.client import MetricoolClient
@@ -851,16 +855,21 @@ def run_schedule(
                 )
                 continue
             file_ref = classify_final_file(row.final_file_url)
-            if file_ref.kind == FinalFileKind.EMPTY:
+            if file_ref.kind in {FinalFileKind.EMPTY, FinalFileKind.INVALID}:
                 stats["skipped"] += 1
-                logger.warning("Skip %s: no Archivo Final media", row.page_id)
+                logger.warning(
+                    "Skip %s: Archivo Final is not an http(s) URL (%s)",
+                    row.page_id,
+                    (file_ref.raw_url or "empty")[:120],
+                )
+                page_url = getattr(row, "url", None) or row.page_id
                 notify_slack(
                     webhook_url=settings.slack_webhook_url,
                     channel=settings.slack_channel,
                     dedupe=dedupe,
                     notion_page_id=row.page_id,
-                    reason="missing_media",
-                    message=f"Schedule skip: no media for {row.url}",
+                    reason="invalid_archivo_final",
+                    message=invalid_archivo_final_message(page_url, row.final_file_url),
                     dry_run=dry,
                 )
                 continue
