@@ -19,6 +19,7 @@ from metricool_sync_posts.metricool.matching import (
     find_sync_match,
     post_publication_datetime,
     post_state,
+    tiktok_manual_publish,
     youtube_split_companions,
 )
 from metricool_sync_posts.notion.client import NotionRepository
@@ -200,6 +201,31 @@ def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) ->
                 )
                 continue
             if state == "PUBLISHED":
+                # Manual TikTok: status Published, but no TikTok post id or link.
+                if any(tiktok_manual_publish(item) for item in group):
+                    stats["tiktok_manual"] = stats.get("tiktok_manual", 0) + 1
+                    stats["pending"] += 1
+                    logger.warning(
+                        "TikTok manual publish for %s; left as Programado",
+                        row.page_id,
+                    )
+                    title = (getattr(row, "title", None) or "").strip() or "Pieza sin nombre"
+                    page = getattr(row, "url", None) or row.page_id
+                    label = f"<{page}|{title}>" if getattr(row, "url", None) else title
+                    notify_slack(
+                        webhook_url=settings.slack_webhook_url,
+                        channel=settings.slack_channel,
+                        dedupe=dedupe,
+                        notion_page_id=row.page_id,
+                        reason="tiktok_manual_publish",
+                        message=(
+                            f"{label}: TikTok quedó en publicación manual / no salió. "
+                            "Metricool lo marca como Published, pero no hay id ni enlace "
+                            "de TikTok. Notion sigue en Programado."
+                        ),
+                        dry_run=dry,
+                    )
+                    continue
                 _mark_published(notion, settings, row.page_id, dry)
                 stats["published"] += 1
                 continue
