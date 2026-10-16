@@ -33,6 +33,11 @@ _FAR_SIMILARITY = 0.85
 _FAR_DAY_GAP = 2
 # Same clock time is not the same piece when the copy is clearly unrelated.
 _SLOT_MIN_SIMILARITY = 0.3
+# A post in the same network+slot is the same piece only when the normalized
+# caption/title is at least this similar. Below it the post is an occupant,
+# never a match, so Notion is not moved to Programado/Publicado. Oct 2026
+# audit: false matches had caption_score 0.02-0.10.
+CONFIDENT_TEXT_SIMILARITY = 0.5
 
 # Words that show up across unrelated CTW captions. They do not identify a piece.
 _GENERIC_TOKENS = frozenset(
@@ -734,17 +739,22 @@ def unique_metricool_posts(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return kept
 
 
+def split_stored_refs(value: str | None) -> set[str]:
+    """Stored Notion refs may hold several ids ("123, 456") after a YouTube split."""
+    return {part.strip() for part in re.split(r"[,\s;]+", value or "") if part.strip()}
+
+
 def _ids_match(post: dict[str, Any], metricool_id: str | None, metricool_uuid: str | None) -> bool:
-    wanted_uuid = (metricool_uuid or "").strip()
-    wanted_id = (metricool_id or "").strip()
+    wanted_uuid = split_stored_refs(metricool_uuid)
+    wanted_id = split_stored_refs(metricool_id)
     # A stored id is stale after update_scheduled_post. When the uuid is known,
     # it is the only identity that still points at the post.
     if wanted_uuid:
         got = post_stable_uuid(post)
-        return bool(got) and got == wanted_uuid
+        return bool(got) and got in wanted_uuid
     if wanted_id:
         got = post_numeric_id(post)
-        return bool(got) and got == wanted_id
+        return bool(got) and got in wanted_id
     return False
 
 
@@ -790,8 +800,14 @@ def match_score(
             return 7.0
         if mc_text[:40] == no_text[:40]:
             return 5.0
+        if caption_similarity(mc_text, no_text) >= CONFIDENT_TEXT_SIMILARITY:
+            return 4.0
         return 0.0
-    return 3.0
+    if not normalize_caption(mc_text) and not normalize_caption(no_text):
+        # Nothing to compare on either side (stories): time+network is all there is.
+        return 3.0
+    # One side has copy and the other does not: not a confident match.
+    return 0.0
 
 
 def find_best_match(
@@ -1034,6 +1050,25 @@ def slot_supports_same_piece(
     return shares_distinctive_tokens(caption, title, post)
 
 
+def text_match_score(caption: str, title: str | None, post: dict[str, Any]) -> float:
+    """Best normalized similarity (0-1) between caption/title and the post copy."""
+    best = 0.0
+    sources = [caption]
+    if title and title.strip():
+        sources.append(title)
+    for source in sources:
+        if not (source or "").strip():
+            continue
+        for field in _post_text_fields(post):
+            if field.strip():
+                best = max(best, caption_similarity(source, field))
+    return best
+
+
+def slot_text_confident(caption: str, title: str | None, post: dict[str, Any]) -> bool:
+    return text_match_score(caption, title, post) >= CONFIDENT_TEXT_SIMILARITY
+
+
 def _score_against_post(source: str, post: dict[str, Any]) -> float:
     best = 0.0
     for field in _post_text_fields(post):
@@ -1081,15 +1116,17 @@ def format_match_evidence(
         reason = "caption"
     elif identified:
         reason = "title"
-    elif slot and slot_supports_same_piece(post, caption=caption, title=title):
+    elif slot and slot_text_confident(caption, title, post):
         reason = "slot"
     elif media:
-        reason = "media"
+        reason = "media_only"
     else:
         reason = "none"
     overlap_text = ",".join(sorted(overlap)) if overlap else "-"
+    text_score = text_match_score(caption, title, post)
     return (
-        f"reason={reason} caption_score={caption_score:.3f} "
+        f"reason={reason} text_score={text_score:.3f} "
+        f"threshold={CONFIDENT_TEXT_SIMILARITY:.2f} caption_score={caption_score:.3f} "
         f"title_score={title_score:.3f} media={str(media).lower()} "
         f"slot={str(slot).lower()} overlap={overlap_text}"
     )
@@ -1173,9 +1210,8 @@ def _duplicate_score(
     if wanted and nets and not (wanted & nets):
         return 0.0
     same_slot = _same_publication_slot(post, notion_publication, tz_name, wanted)
-    related = slot_supports_same_piece(post, caption=caption, title=title)
-    if same_slot and related:
-        # Edited caption, same slot, and the copy still looks related.
+    if same_slot and slot_text_confident(caption, title, post):
+        # Same network+slot AND the copy substantially matches.
         return 9.0
     if _copy_identifies_post(
         post,
@@ -1185,8 +1221,8 @@ def _duplicate_score(
         notion_publication=notion_publication,
     ):
         return 7.0
-    if media_overlaps(media_urls, post):
-        return 4.0
+    # Shared media alone, or a slot with unrelated copy, is never a confident
+    # match: the caller treats such posts as slot occupants instead.
     return 0.0
 
 

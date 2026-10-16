@@ -207,6 +207,42 @@ class NotionRepository:
                 raise
         raise RuntimeError(f"Could not update status property {prop!r} on page {page_id}")
 
+    def set_metricool_refs(
+        self,
+        page_id: str,
+        *,
+        ids: list[str],
+        uuids: list[str] | None = None,
+        dry_run: bool,
+    ) -> bool:
+        """Write Metricool id(s)/uuid(s) as text. Missing property: warn, never fail."""
+        props: dict[str, Any] = {}
+        id_prop = (self._settings.notion_prop_metricool_id or "").strip()
+        uuid_prop = (self._settings.notion_prop_metricool_uuid or "").strip()
+        clean_ids = [str(x).strip() for x in ids if str(x or "").strip()]
+        clean_uuids = [str(x).strip() for x in (uuids or []) if str(x or "").strip()]
+        if id_prop and clean_ids:
+            props[id_prop] = {"rich_text": [{"text": {"content": ", ".join(clean_ids)}}]}
+        if uuid_prop and clean_uuids:
+            props[uuid_prop] = {"rich_text": [{"text": {"content": ", ".join(clean_uuids)}}]}
+        if not props:
+            return False
+        if dry_run:
+            logger.info("[dry-run] Notion %s would store Metricool refs %s", page_id, props)
+            return False
+        try:
+            self._client.pages.update(page_id=page_id, properties=props)
+        except APIResponseError as exc:
+            logger.warning(
+                "Could not store Metricool id on %s (property %r missing or not text?): %s",
+                page_id,
+                list(props),
+                exc,
+            )
+            return False
+        logger.info("Notion %s stored Metricool ids=%s uuids=%s", page_id, clean_ids, clean_uuids)
+        return True
+
     def list_databases(self) -> list[dict[str, Any]]:
         """Search workspace for data sources (discover helper)."""
         from metricool_sync_posts.notion.discover_util import search_data_sources

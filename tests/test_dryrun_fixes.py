@@ -404,7 +404,8 @@ def test_existing_piece_matches_caption_title_or_media():
         notion_publication=datetime(2026, 10, 6, 18, 0, tzinfo=BOG),
         media_urls=["https://youtu.be/ssk7BVyhvSw"],
     )
-    assert by_media is not None and by_media["id"] == 88
+    # Shared media alone is not a confident match (Oct 2026 audit).
+    assert by_media is None
 
 
 def test_linkedin_is_stripped_not_scheduled_alone():
@@ -797,16 +798,20 @@ def test_confirm_uses_provider_status_and_vanished_rule(tmp_path):
         patch("metricool_sync_posts.slack.notify.httpx.post") as slack_post,
     ):
         stats = run_confirm_published(settings=settings, dry_run=False)
-    assert stats["published"] == 2  # real PUBLISHED + vanished
+    assert stats["published"] == 1  # only the real PUBLISHED
+    assert stats["missing"] == 1  # vanished: alert, never a blind Publicado
     assert stats["pending"] == 2  # PENDING drift + UNKNOWN
     assert stats["blockers"] == 1
     assert stats["skipped"] == 1
     marked = {call.args[0] for call in notion.set_status.call_args_list}
-    assert marked == {"page-pub", "page-gone"}
+    assert marked == {"page-pub"}
     for call in notion.set_status.call_args_list:
         assert call.args[1] == "Publicado"
         assert call.kwargs["dry_run"] is False
-    slack_post.assert_called_once()
+    # Provider ERROR blocker + missing-in-Metricool alert.
+    assert slack_post.call_count == 2
+    texts = [c.kwargs["json"]["text"] for c in slack_post.call_args_list]
+    assert any("no encontré ningún post en Metricool" in t for t in texts)
 
 
 def test_confirm_dry_run_does_not_write(tmp_path):
@@ -1103,8 +1108,8 @@ def test_youtube_without_titulo_skips_and_a_long_hook_is_trimmed(tmp_path):
     assert "caption" not in title
 
 
-def test_same_slot_is_a_duplicate_even_when_caption_was_edited(tmp_path):
-    """Notion copy and the Metricool caption diverged; the slot is still the same post."""
+def test_same_slot_with_unrelated_caption_is_a_conflict_not_a_match(tmp_path):
+    """Same slot but unrelated copy: never reconciled, Notion untouched, alert sent."""
     notion_caption = (
         "The bridge: entrevista con un fundador que construyo durante anos antes de este cruce"
     )
@@ -1124,19 +1129,20 @@ def test_same_slot_is_a_duplicate_even_when_caption_was_edited(tmp_path):
     stats, notion, metricool, media, _slack = _run_schedule(
         tmp_path, [row], dry=True, posts=[existing]
     )
-    assert stats["reconciled"] == 1
+    assert stats["reconciled"] == 0
     assert stats["scheduled"] == 0
     metricool.create_scheduled_post.assert_not_called()
     media.assert_not_called()
     notion.set_status.assert_not_called()
 
-    stats, notion, metricool, _media, _slack = _run_schedule(
+    stats, notion, metricool, _media, slack = _run_schedule(
         tmp_path, [row], dry=False, posts=[existing]
     )
-    assert stats["reconciled"] == 1
-    assert stats["scheduled"] == 0
+    assert stats["reconciled"] == 0
+    assert stats["skipped"] == 1
     metricool.create_scheduled_post.assert_not_called()
-    notion.set_status.assert_called_once_with(row.page_id, "Programado", dry_run=False)
+    notion.set_status.assert_not_called()
+    assert "slot_conflict" in {call.kwargs["reason"] for call in slack.call_args_list}
 
 
 def test_slot_window_is_fifteen_minutes_and_same_network():
@@ -1386,13 +1392,14 @@ def test_new_pieces_schedule_while_real_duplicates_reconcile(tmp_path):
         tmp_path, [smartfit, bridge, ia, trials, havi], dry=False, posts=posts
     )
     assert stats["scheduled"] == 3
-    assert stats["reconciled"] == 2
-    assert stats["skipped"] == 0
+    # The bridge slot holds unrelated copy: a conflict, not a match.
+    assert stats["reconciled"] == 1
+    assert stats["skipped"] == 1
     assert metricool.create_scheduled_post.call_count == 3
     reasons = {call.kwargs["reason"] for call in slack.call_args_list}
     assert "ambiguous_duplicate" not in reasons
     status = {call.args[0]: call.args[1] for call in notion.set_status.call_args_list}
-    assert status[bridge.page_id] == "Programado"
+    assert bridge.page_id not in status
     assert status[smartfit.page_id] == "Publicado"
     assert status[ia.page_id] == "Programado"
     assert status[trials.page_id] == "Programado"
@@ -1776,8 +1783,8 @@ def test_empty_instagram_story_slot_is_not_scheduled_again(tmp_path):
     notion.set_status.assert_not_called()
     assert slack.call_args.kwargs["reason"] == "slot_conflict"
     message = slack.call_args.kwargs["message"]
-    assert "empty or too short" in message
-    assert "within 15 minutes" in message
+    assert "vacío o es muy corto" in message
+    assert "a menos de 15 minutos" in message
     assert "Instagram Stories" in message
     assert "400100200" in message
 
@@ -1803,8 +1810,8 @@ def test_short_text_feed_occupant_blocks_another_feed_row(tmp_path):
     assert slack.call_args.kwargs["reason"] == "slot_conflict"
     message = slack.call_args.kwargs["message"]
     assert "Instagram feed" in message
-    assert "within 15 minutes" in message
-    assert "empty or too short" in message
+    assert "a menos de 15 minutos" in message
+    assert "vacío o es muy corto" in message
 
 
 def test_clearly_different_media_can_use_a_slot_whose_text_is_empty(tmp_path):
@@ -1826,8 +1833,8 @@ def test_clearly_different_media_can_use_a_slot_whose_text_is_empty(tmp_path):
     assert slack.call_args.kwargs["reason"] == "scheduled"
 
 
-def test_same_direct_url_is_the_existing_story_not_a_second_post(tmp_path):
-    """An identical file URL is the story already on the calendar."""
+def test_same_direct_url_story_blocks_but_is_not_a_confident_match(tmp_path):
+    """Identical file URL, no copy to compare: blocked, Notion untouched."""
     url = "https://cdn.example/govtech-story-a.jpg"
     row = _fiscal_story_row(final_file_url=url)
     story = _empty_instagram_story(media=[url])
@@ -1835,8 +1842,8 @@ def test_same_direct_url_is_the_existing_story_not_a_second_post(tmp_path):
         tmp_path, [row], dry=True, posts=[story]
     )
     assert stats["scheduled"] == 0
-    assert stats["reconciled"] == 1
-    assert stats["skipped"] == 0
+    assert stats["reconciled"] == 0
+    assert stats["skipped"] == 1
     metricool.create_scheduled_post.assert_not_called()
     media.assert_not_called()
     notion.set_status.assert_not_called()
@@ -1883,9 +1890,9 @@ def test_long_different_caption_still_conflicts_when_media_urls_differ(tmp_path)
     assert slack.call_args.kwargs["reason"] == "slot_conflict"
     message = slack.call_args.kwargs["message"]
     assert "Instagram feed" in message
-    assert "within 15 minutes" in message
+    assert "a menos de 15 minutos" in message
     assert "387636704" in message
-    assert "different piece" in message
+    assert "otra pieza (el texto no coincide)" in message
 
 
 def test_govtech_story_payload_is_the_next_day_and_logs_no_occupant(tmp_path, caplog):
@@ -2015,11 +2022,11 @@ def test_same_feed_within_fifteen_minutes_names_the_other_piece(tmp_path):
     metricool.create_scheduled_post.assert_called_once()
     assert media.call_count == 1
     message = _conflict_message(slack)
-    assert "within 15 minutes" in message
+    assert "a menos de 15 minutos" in message
     assert "Instagram feed" in message
     assert "https://notion.so/carousel" in message
-    assert "another piece on the same network and format" in message
-    assert "not created" in message
+    assert "otra pieza en la misma red y formato" in message
+    assert "Notion no se cambió" in message
 
 
 def test_same_feed_sixteen_minutes_apart_is_not_a_conflict(tmp_path):
@@ -2103,8 +2110,8 @@ def test_metricool_reel_does_not_block_a_story_and_post_blocks_feed(tmp_path):
     assert slack.call_args.kwargs["reason"] == "slot_conflict"
     assert "Instagram feed" in message
     assert "Metricool 77" in message
-    assert "within 15 minutes" in message
-    assert "different piece" in message
+    assert "a menos de 15 minutos" in message
+    assert "otra pieza (el texto no coincide)" in message
 
 
 def test_trial_reel_conflicts_with_an_existing_instagram_post(tmp_path):
@@ -2134,7 +2141,7 @@ def test_trial_reel_conflicts_with_an_existing_instagram_post(tmp_path):
     message = slack.call_args.kwargs["message"]
     assert "Instagram feed" in message
     assert "Metricool 88" in message
-    assert "within 15 minutes" in message
+    assert "a menos de 15 minutos" in message
 
 
 def test_tiktok_and_youtube_only_conflict_with_themselves(tmp_path):
@@ -2193,7 +2200,7 @@ def test_tiktok_and_youtube_only_conflict_with_themselves(tmp_path):
     message = _conflict_message(slack)
     assert "TikTok" in message
     assert "https://notion.so/tiktok" in message
-    assert "another piece on the same network and format" in message
+    assert "otra pieza en la misma red y formato" in message
     assert "Instagram" not in message
 
     existing_youtube = _post(
@@ -2213,8 +2220,8 @@ def test_tiktok_and_youtube_only_conflict_with_themselves(tmp_path):
     assert slack.call_args.kwargs["reason"] == "slot_conflict"
     assert "YouTube" in message
     assert "Metricool 90" in message
-    assert "within 15 minutes" in message
-    assert "different piece" in message
+    assert "a menos de 15 minutos" in message
+    assert "otra pieza (el texto no coincide)" in message
 
 
 def test_story_plus_tiktok_conflicts_only_on_the_shared_group(tmp_path):

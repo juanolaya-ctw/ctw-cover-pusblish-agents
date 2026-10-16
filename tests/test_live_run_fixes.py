@@ -208,7 +208,7 @@ def test_date_only_notion_publication_is_not_scheduled_at_midnight(tmp_path):
     media.assert_not_called()
     notion.set_status.assert_not_called()
     assert slack.call_args.kwargs["reason"] == "missing_time"
-    assert "no time" in slack.call_args.kwargs["message"]
+    assert "no hora" in slack.call_args.kwargs["message"]
 
 
 def test_row_from_page_keeps_a_date_without_a_time(tmp_path):

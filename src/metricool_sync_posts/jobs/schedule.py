@@ -50,22 +50,119 @@ from metricool_sync_posts.metricool.matching import (
     post_format_groups,
     post_stable_uuid,
     slot_occupant_blocks,
+    split_stored_refs,
 )
 from metricool_sync_posts.metricool.profiles import load_connected_networks
 from metricool_sync_posts.notion.client import NotionRepository
 from metricool_sync_posts.slack.dedupe import DedupeStore
+from metricool_sync_posts.slack.digest import SlackDigest
 from metricool_sync_posts.slack.notify import notify_slack
 from metricool_sync_posts.timeutil import (
-    calendar_week_bounds,
     dates_equal_within_minutes,
     now_in,
     publication_sort_key,
+    rolling_window_bounds,
 )
 
 logger = logging.getLogger(__name__)
 
 # Business rules, not just defaults: Newsletter stays manual, IG Nico is another brand.
 _ALWAYS_EXCLUDED = frozenset({"Newsletter", "IG Nico"})
+
+# Spanish explanation of each skip reason, used by the expiry alert to name
+# the blocker that kept the piece from being scheduled in time.
+REASON_LABELS_ES: dict[str, str] = {
+    "no_connected_network": 'falta "Canal" (o la red no está conectada)',
+    "missing_publication_date": 'falta "Publicación"',
+    "missing_time": '"Publicación" no tiene hora',
+    "placeholder_caption": "el Caption tiene un texto de relleno",
+    "missing_caption": "falta el Caption",
+    "slot_conflict": "choque de horario con otra pieza",
+    "ambiguous_duplicate": "varios posts de Metricool parecen ser esta pieza",
+    "invalid_archivo_final": '"Archivo Final" no tiene un link válido',
+    "missing_hook": 'falta "Titulo" (YouTube)',
+    "prior_attempt": "un intento anterior de programarla quedó bloqueado",
+    "media_host_failed": "no se pudo descargar o subir el archivo",
+    "missing_media": "no se encontró el archivo",
+    "miniatura_not_a_post": "es una miniatura, no un post",
+    "schedule_error": "error de Metricool al programar",
+}
+
+
+def _piece_label(row) -> str:
+    """Slack mrkdwn link to the Notion page, named by its title."""
+    url = getattr(row, "url", None) or ""
+    title = (getattr(row, "title", None) or "").strip() or "Pieza sin nombre"
+    title = title.replace("|", "/").replace(">", "›").replace("<", "‹")
+    if url:
+        return f"<{url}|{title}>"
+    return f"{title} ({row.page_id})"
+
+
+def _alert(ctx: dict, row, reason: str, text: str) -> None:
+    """One Spanish alert per piece+reason, queued into the run digest."""
+    notify_slack(
+        webhook_url=ctx["settings"].slack_webhook_url,
+        channel=ctx["settings"].slack_channel,
+        dedupe=ctx["dedupe"],
+        notion_page_id=row.page_id,
+        reason=reason,
+        message=f"{_piece_label(row)}: {text}",
+        dry_run=ctx["dry"],
+        digest=ctx["digest"],
+        title=getattr(row, "title", None),
+        url=getattr(row, "url", None),
+    )
+
+
+def _fmt_local(dt: datetime) -> str:
+    return dt.strftime("%d/%m %I:%M %p").lower().replace("am", "a. m.").replace("pm", "p. m.")
+
+
+def _expired_text(ctx: dict, row, pub: datetime) -> str:
+    previous = [
+        REASON_LABELS_ES[r]
+        for r in ctx["dedupe"].reasons_for(row.page_id)
+        if r in REASON_LABELS_ES
+    ]
+    why = ""
+    if previous:
+        unique = list(dict.fromkeys(previous))
+        why = " Antes no se programó porque " + "; ".join(unique) + "."
+    return (
+        f'la hora de "Publicación" ({_fmt_local(pub)}) ya pasó y la pieza sigue en '
+        f"Aprobado sin programar.{why} Para publicarla, corrige lo que falte y pon una "
+        'fecha y hora futura en "Publicación"; la próxima corrida (cada 2 h) la programa.'
+    )
+
+
+def _created_refs(responses: list) -> tuple[list[str], list[str]]:
+    """Metricool create responses → (ids, uuids). Tolerates {"data": {...}}."""
+    ids: list[str] = []
+    uuids: list[str] = []
+    for resp in responses:
+        item = resp
+        if isinstance(item, dict) and isinstance(item.get("data"), dict):
+            item = item["data"]
+        if not isinstance(item, dict):
+            continue
+        pid = str(item.get("id") or item.get("postId") or "").strip()
+        uid = str(item.get("uuid") or "").strip()
+        if pid:
+            ids.append(pid)
+        if uid:
+            uuids.append(uid)
+    return ids, uuids
+
+
+def _store_refs(notion, row, ids: list[str], uuids: list[str], dry: bool) -> None:
+    setter = getattr(notion, "set_metricool_refs", None)
+    if not callable(setter) or not (ids or uuids):
+        return
+    try:
+        setter(row.page_id, ids=ids, uuids=uuids, dry_run=dry)
+    except Exception:
+        logger.exception("Could not store Metricool ids on %s", row.page_id)
 
 
 def _publication_on_date(row, tz_name: str, target: date) -> bool:
@@ -287,9 +384,13 @@ def _claim_linked_posts(
             for post in existing_posts:
                 post_uuid = post_stable_uuid(post)
                 # Uuid wins. A stored numeric id may be the pre-update id.
-                if stored_uuid and post_uuid == stored_uuid:
+                if stored_uuid and post_uuid and post_uuid in split_stored_refs(stored_uuid):
                     hits.append(post)
-                elif stored_id and not stored_uuid and _post_key(post) == stored_id:
+                elif (
+                    stored_id
+                    and not stored_uuid
+                    and _post_key(post) in split_stored_refs(stored_id)
+                ):
                     hits.append(post)
         for hit in hits:
             if not claim_keys_for_post(hit) or _claimed_by(claimed, hit):
@@ -325,8 +426,13 @@ def _reconcile_existing(
     post: dict,
     dry: bool,
     posts: list[dict] | None = None,
+    digest: SlackDigest | None = None,
 ) -> None:
-    """Point Notion at the post that already exists. Never creates another one."""
+    """Point Notion at the post that already exists. Never creates another one.
+
+    Callers only get here with a confident match (stored id, or caption/title
+    similarity). A post that merely shares the slot is never reconciled.
+    """
     group = posts or [post]
     state = combined_post_state(group)
     post_id = ", ".join(
@@ -348,10 +454,12 @@ def _reconcile_existing(
             notion_page_id=row.page_id,
             reason="metricool_duplicate_error",
             message=(
-                f"BLOCKER: existing Metricool post {post_id} for {row.url} "
-                "has a provider ERROR; not created again and Notion was not changed"
+                f"{_piece_label(row)}: ya existe en Metricool (post {post_id}) pero salió "
+                "con ERROR. No se creó otra vez y Notion no se cambió. Revisa el post en "
+                "Metricool y vuelve a publicarlo desde allí."
             ),
             dry_run=dry,
+            digest=digest,
         )
         return
     if state == "PUBLISHED":
@@ -375,6 +483,13 @@ def _reconcile_existing(
         state,
         row.page_id,
         target,
+    )
+    _store_refs(
+        notion,
+        row,
+        [str(i.get("id") or i.get("postId")) for i in group if i.get("id") or i.get("postId")],
+        [post_stable_uuid(i) for i in group if post_stable_uuid(i)],
+        dry,
     )
 
 
@@ -406,15 +521,32 @@ def run_schedule(
     settings.ensure_data_dirs()
     connected = load_connected_networks(metricool, settings.metricool_blog_id)
 
+    digest = SlackDigest(
+        webhook_url=settings.slack_webhook_url,
+        channel=settings.slack_channel,
+        header="",
+    )
+    ctx = {"settings": settings, "dedupe": dedupe, "dry": dry, "digest": digest}
+
     now = now_in(settings.timezone)
-    week_start, week_end = calendar_week_bounds(now, settings.timezone)
-    # Whole week, then cap successful creates. Skips must not eat the fetch window.
+    # Rolling window: recent past (expiry alerts) through the next N days, so
+    # next week's pieces are seen before Monday. Successful creates are capped.
+    week_start, week_end = rolling_window_bounds(
+        now,
+        settings.timezone,
+        back_days=settings.schedule_lookback_days,
+        ahead_days=settings.schedule_lookahead_days,
+    )
+    digest.header = (
+        f":calendar: *Programación CTW — corrida {now.strftime('%d/%m %H:%M')}* "
+        "(solo avisos nuevos o que cambiaron)"
+    )
     rows = notion.fetch_approved_current_week(week_start, week_end, limit=None)
     if target_page:
         rows = [r for r in rows if str(UUID(r.page_id)) == target_page]
         if len(rows) != 1:
             metricool.close()
-            raise ValueError("--only-page-id must match exactly one approved row this week")
+            raise ValueError("--only-page-id must match exactly one approved row in the window")
     if only_publication_date is not None:
         tz = settings.timezone
         rows = [r for r in rows if _publication_on_date(r, tz, only_publication_date)]
@@ -452,7 +584,7 @@ def run_schedule(
     )
     stats["queried"] = len(rows)
     logger.info(
-        "Found %s approved rows for week %s — %s (channels: %s)",
+        "Found %s approved rows for window %s — %s (channels: %s)",
         len(rows),
         week_start.date(),
         week_end.date(),
@@ -523,18 +655,18 @@ def run_schedule(
                     row.page_id,
                     list(plan.dropped) or labels or None,
                 )
-                page_url = getattr(row, "url", None) or row.page_id
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason="no_connected_network",
-                    message=(
-                        f"Schedule skip: no connected network remains for {page_url} "
-                        f"(dropped {list(plan.dropped) or labels})"
-                    ),
-                    dry_run=dry,
+                if labels:
+                    detail = (
+                        f'"Canal" dice {", ".join(labels)}, pero ninguna de esas redes se '
+                        "programa desde aquí (solo IG colombiatechoficial, TikTok y YouTube)."
+                    )
+                else:
+                    detail = '"Canal" está vacío, así que no sé a qué red mandarla.'
+                _alert(
+                    ctx,
+                    row,
+                    "no_connected_network",
+                    f"no se programó: {detail} Llena \"Canal\" en Notion.",
                 )
                 continue
             networks = list(plan.networks)
@@ -542,14 +674,12 @@ def run_schedule(
             pub = publication_dt(row, settings.timezone)
             if pub is None:
                 stats["skipped"] += 1
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason="missing_publication_date",
-                    message=f"Schedule skip: missing Publicación for {row.url}",
-                    dry_run=dry,
+                logger.warning("Skip %s: missing Publicación", row.page_id)
+                _alert(
+                    ctx,
+                    row,
+                    "missing_publication_date",
+                    'no se programó: falta la fecha y hora en "Publicación".',
                 )
                 continue
             if not isinstance(row.publication, datetime):
@@ -559,34 +689,30 @@ def run_schedule(
                     row.page_id,
                     row.publication,
                 )
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason="missing_time",
-                    message=(
-                        f"Schedule skip: Publicación {row.publication} has no time "
-                        f"for {row.url}; not scheduled at midnight"
-                    ),
-                    dry_run=dry,
+                _alert(
+                    ctx,
+                    row,
+                    "missing_time",
+                    f'no se programó: "Publicación" tiene fecha ({row.publication}) pero no '
+                    "hora. Ponle la hora en Notion.",
                 )
                 continue
             caption = caption_for_row(notion, row)
+            story = is_story_type(row.content_type)
             if caption and caption_has_placeholder(caption):
                 stats["skipped"] += 1
                 logger.warning("Skip %s: placeholder in caption", row.page_id)
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason="placeholder_caption",
-                    message=f"Schedule skip: caption still has a placeholder for {row.url}",
-                    dry_run=dry,
+                _alert(
+                    ctx,
+                    row,
+                    "placeholder_caption",
+                    "no se programó: el Caption todavía tiene texto de relleno "
+                    "([...], {...}, TODO o lorem ipsum). Corrige el Caption en Notion.",
                 )
                 continue
-            if caption:
+            now_local = now_in(settings.timezone)
+            expired = pub < now_local
+            if caption or story:
                 raw_hits = find_duplicate_candidates(
                     existing_posts,
                     caption=caption,
@@ -624,6 +750,7 @@ def run_schedule(
                         post=hits[0],
                         posts=hits,
                         dry=dry,
+                        digest=digest,
                     )
                     for hit in hits:
                         _remember_claim(claimed, hit, row.page_id)
@@ -666,17 +793,13 @@ def run_schedule(
                         row.page_id,
                         ids,
                     )
-                    notify_slack(
-                        webhook_url=settings.slack_webhook_url,
-                        channel=settings.slack_channel,
-                        dedupe=dedupe,
-                        notion_page_id=row.page_id,
-                        reason="ambiguous_duplicate",
-                        message=(
-                            f"Schedule skip: more than one Metricool post matches {row.url} "
-                            f"({ids}); not created"
-                        ),
-                        dry_run=dry,
+                    _alert(
+                        ctx,
+                        row,
+                        "ambiguous_duplicate",
+                        f"no se programó: hay varios posts en Metricool que parecen ser esta "
+                        f"pieza ({', '.join(str(i) for i in ids)}). Borra los duplicados en "
+                        "Metricool; Notion no se cambió.",
                     )
                     continue
                 if len(hits) == 1 and not completing_split:
@@ -702,9 +825,20 @@ def run_schedule(
                         row=row,
                         post=chosen,
                         dry=dry,
+                        digest=digest,
                     )
                     _remember_claim(claimed, chosen, row.page_id)
                     stats["reconciled"] += 1
+                    continue
+                if expired:
+                    # Past pieces never get a slot check: the real problem is the time.
+                    stats["skipped"] += 1
+                    logger.warning(
+                        "Skip %s: publication %s is in the past; expired, not rescheduled",
+                        row.page_id,
+                        pub,
+                    )
+                    _alert(ctx, row, "past_publication_date", _expired_text(ctx, row, pub))
                     continue
                 groups = publication_format_groups(
                     networks,
@@ -719,7 +853,6 @@ def run_schedule(
                     notion_publication=pub,
                     format_groups=groups,
                 )
-                story = is_story_type(row.content_type)
                 notion_media = [row.final_file_url] if row.final_file_url else None
                 blocking = [
                     occupant
@@ -789,50 +922,41 @@ def run_schedule(
                     )
                     empty_slot = any(post_copy_is_thin(post) for post in blocking)
                     if empty_slot:
-                        why = "whose text is empty or too short to compare"
+                        why = "cuyo texto está vacío o es muy corto para compararlo"
                     elif peers and not blocking:
-                        why = "which is another piece on the same network and format"
+                        why = "que es otra pieza en la misma red y formato"
                     elif story:
-                        why = "and this row is a Historia"
+                        why = "y esta pieza es una Historia"
                     else:
-                        why = "which is a different piece"
-                    notify_slack(
-                        webhook_url=settings.slack_webhook_url,
-                        channel=settings.slack_channel,
-                        dedupe=dedupe,
-                        notion_page_id=row.page_id,
-                        reason="slot_conflict",
-                        message=(
-                            f"Schedule skip: {row.url} shares a publication slot "
-                            f"within 15 minutes with {who}, {why}; not created"
-                        ),
-                        dry_run=dry,
+                        why = "que es otra pieza (el texto no coincide)"
+                    _alert(
+                        ctx,
+                        row,
+                        "slot_conflict",
+                        f"no se programó: a menos de 15 minutos ya está {who}, {why}. "
+                        'Cambia la hora en "Publicación" de Notion (o confirma en Metricool '
+                        "si ese post es esta misma pieza). Notion no se cambió.",
                     )
                     continue
-            now_local = now_in(settings.timezone)
-            if pub < now_local:
+            if expired:
                 stats["skipped"] += 1
                 logger.warning(
-                    "Skip %s: publication %s is in the past; not rescheduled",
+                    "Skip %s: publication %s is in the past; expired, not rescheduled",
                     row.page_id,
                     pub,
                 )
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason="past_publication_date",
-                    message=(
-                        f"Schedule skip: Publicación {pub.isoformat()} is in the past "
-                        f"for {row.url}; not moved to now"
-                    ),
-                    dry_run=dry,
-                )
+                _alert(ctx, row, "past_publication_date", _expired_text(ctx, row, pub))
                 continue
-            if not caption:
+            if not caption and not story:
                 stats["skipped"] += 1
                 logger.warning("Skip %s: empty caption", row.page_id)
+                _alert(
+                    ctx,
+                    row,
+                    "missing_caption",
+                    "no se programó: falta el Caption (ni la propiedad ni el cuerpo de la "
+                    "página tienen texto). Llena el Caption en Notion.",
+                )
                 continue
             if is_miniatura_type(row.content_type):
                 stats["skipped"] += 1
@@ -841,17 +965,12 @@ def run_schedule(
                     row.page_id,
                     row.content_type,
                 )
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason="miniatura_not_a_post",
-                    message=(
-                        f"Schedule skip: {row.content_type} is not scheduled "
-                        f"as a standalone post ({row.url})"
-                    ),
-                    dry_run=dry,
+                _alert(
+                    ctx,
+                    row,
+                    "miniatura_not_a_post",
+                    f'no se programó: el "Tipo" es {row.content_type}, que es una miniatura '
+                    "y no un post. Si sí es un post, cambia el Tipo en Notion.",
                 )
                 continue
             file_ref = classify_final_file(row.final_file_url)
@@ -863,14 +982,11 @@ def run_schedule(
                     (file_ref.raw_url or "empty")[:120],
                 )
                 page_url = getattr(row, "url", None) or row.page_id
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason="invalid_archivo_final",
-                    message=invalid_archivo_final_message(page_url, row.final_file_url),
-                    dry_run=dry,
+                _alert(
+                    ctx,
+                    row,
+                    "invalid_archivo_final",
+                    invalid_archivo_final_message(page_url, row.final_file_url),
                 )
                 continue
             if (
@@ -881,6 +997,15 @@ def run_schedule(
                 stats["skipped"] += 1
                 logger.warning(
                     "Skip %s: prior schedule attempt; reconcile before retry", row.page_id
+                )
+                _alert(
+                    ctx,
+                    row,
+                    "prior_attempt",
+                    "no se programó: ya hubo un intento anterior de programarla que no "
+                    "terminó bien, y para no duplicarla no se reintenta sola. Revisa en "
+                    "Metricool si el post existe: si existe, pasa la pieza a Programado en "
+                    "Notion; si no existe, pídele a Kap que libere el bloqueo.",
                 )
                 continue
             if cap is not None and stats["scheduled"] >= cap:
@@ -894,15 +1019,12 @@ def run_schedule(
             if "youtube" in networks and not hook:
                 stats["skipped"] += 1
                 logger.warning("Skip %s: YouTube row has no Titulo hook", row.page_id)
-                page_url = getattr(row, "url", None) or row.page_id
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason="missing_hook",
-                    message=f"Schedule skip: YouTube row has no Titulo hook for {page_url}",
-                    dry_run=dry,
+                _alert(
+                    ctx,
+                    row,
+                    "missing_hook",
+                    'no se programó: va a YouTube y falta "Titulo" (es el título del video '
+                    'en YouTube). Llena "Titulo" en Notion.',
                 )
                 continue
 
@@ -916,15 +1038,13 @@ def run_schedule(
             if cover.skip_reason:
                 stats["skipped"] += 1
                 logger.warning("Skip %s: %s", row.page_id, cover.skip_reason)
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason=cover.skip_reason,
-                    message=cover.skip_message
-                    or f"Schedule skip: {cover.skip_reason} for {row.url}",
-                    dry_run=dry,
+                _alert(
+                    ctx,
+                    row,
+                    cover.skip_reason,
+                    "no se programó: problema con la portada del Reel "
+                    f'("Miniatura" o "Archivo Final"). Detalle: '
+                    f"{cover.skip_message or cover.skip_reason}",
                 )
                 continue
 
@@ -945,28 +1065,25 @@ def run_schedule(
                 except MediaHostError as exc:
                     stats["skipped"] += 1
                     logger.warning("Skip %s: media_host_failed: %s", row.page_id, exc)
-                    notify_slack(
-                        webhook_url=settings.slack_webhook_url,
-                        channel=settings.slack_channel,
-                        dedupe=dedupe,
-                        notion_page_id=row.page_id,
-                        reason="media_host_failed",
-                        message=f"Schedule skip: media_host_failed for {row.url}: {exc}",
-                        dry_run=dry,
+                    _alert(
+                        ctx,
+                        row,
+                        "media_host_failed",
+                        'no se programó: no pude descargar o subir el archivo de "Archivo '
+                        'Final" (revisa que el link sea público o que la carpeta esté '
+                        f"compartida). Detalle: {exc}",
                     )
                     continue
 
             if not media_urls:
                 stats["skipped"] += 1
                 logger.warning("Skip %s: media resolved to nothing", row.page_id)
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason="missing_media",
-                    message=f"Schedule skip: no media for {row.url}",
-                    dry_run=dry,
+                _alert(
+                    ctx,
+                    row,
+                    "missing_media",
+                    'no se programó: no encontré ningún archivo en "Archivo Final" '
+                    "(carpeta vacía o sin videos/imágenes). Revisa el link en Notion.",
                 )
                 continue
             kept, dropped_for_images = partition_image_networks(networks, media_urls)
@@ -989,17 +1106,13 @@ def run_schedule(
                     reason,
                     networks,
                 )
-                notify_slack(
-                    webhook_url=settings.slack_webhook_url,
-                    channel=settings.slack_channel,
-                    dedupe=dedupe,
-                    notion_page_id=row.page_id,
-                    reason=reason,
-                    message=(
-                        f"Schedule skip: {row.url} targets {networks} but the media "
-                        "are only images and no network that accepts them remains"
-                    ),
-                    dry_run=dry,
+                _alert(
+                    ctx,
+                    row,
+                    reason,
+                    f'no se programó: "Canal" pide {", ".join(networks)} pero "Archivo '
+                    'Final" solo tiene imágenes, y esas redes necesitan video. Sube el '
+                    'video a "Archivo Final" o cambia el Canal.',
                 )
                 continue
             networks = kept
@@ -1052,11 +1165,18 @@ def run_schedule(
                 if not reserved and not completing_split:
                     stats["skipped"] += 1
                     continue
-                for part in bodies:
-                    metricool.create_scheduled_post(part)
+                responses = [metricool.create_scheduled_post(part) for part in bodies]
+                created_ids, created_uuids = _created_refs(responses)
+                logger.info(
+                    "Created Metricool post(s) for %s ids=%s uuids=%s",
+                    row.page_id,
+                    created_ids or "-",
+                    created_uuids or "-",
+                )
                 # Status flips only after every create returns. A failed create
                 # raises above and leaves Notion on Aprobado.
                 notion.set_status(row.page_id, settings.notion_status_scheduled, dry_run=False)
+                _store_refs(notion, row, created_ids, created_uuids, dry)
             stats["scheduled"] += 1
             taken_slots.append(
                 {
@@ -1070,27 +1190,23 @@ def run_schedule(
                     ),
                 }
             )
-            notify_slack(
-                webhook_url=settings.slack_webhook_url,
-                channel=settings.slack_channel,
-                dedupe=dedupe,
-                notion_page_id=row.page_id,
-                reason="scheduled",
-                message=f"Programado en Metricool: {row.title or row.page_id}",
-                dry_run=dry,
+            _alert(
+                ctx,
+                row,
+                "scheduled",
+                f"programada para {_fmt_local(pub)} en {', '.join(networks)}.",
             )
         except Exception as exc:
             stats["errors"] += 1
             logger.exception("Schedule failed for %s: %s", row.page_id, exc)
-            notify_slack(
-                webhook_url=settings.slack_webhook_url,
-                channel=settings.slack_channel,
-                dedupe=dedupe,
-                notion_page_id=row.page_id,
-                reason="schedule_error",
-                message=f"Error programando {row.url}: {exc}",
-                dry_run=dry,
+            _alert(
+                ctx,
+                row,
+                "schedule_error",
+                f"error al programar en Metricool; Notion sigue en Aprobado. Detalle: {exc}",
             )
 
     metricool.close()
+    if not dry:
+        digest.flush()
     return stats
