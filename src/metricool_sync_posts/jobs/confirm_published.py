@@ -70,7 +70,10 @@ def _warn_if_media_expired(
         dedupe=dedupe,
         notion_page_id=row.page_id,
         reason="media_expired",
-        message=f"media_expired: media URL is gone before publish for {row.url}: {detail}",
+        message=(
+            f"{row.url}: el archivo del post ya no está disponible y se publica en menos "
+            f"de 24 h. Vuelve a subir el archivo en Metricool. Detalle: {detail}"
+        ),
         dry_run=dry,
     )
 
@@ -145,14 +148,30 @@ def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) ->
                 )
             if not match:
                 if pub <= now - _VANISHED_GRACE:
-                    logger.info(
-                        "No Metricool post for %s and publication %s has passed; "
-                        "marking Publicado",
+                    # No confident match: never mark Publicado blindly. The piece
+                    # may never have been published (Oct 2026 audit: SpaceX).
+                    logger.warning(
+                        "No confident Metricool match for %s and publication %s has "
+                        "passed; left as Programado and alerted",
                         row.page_id,
                         pub,
                     )
-                    _mark_published(notion, settings, row.page_id, dry)
-                    stats["published"] += 1
+                    stats["missing"] = stats.get("missing", 0) + 1
+                    title = (getattr(row, "title", None) or "").strip() or "Pieza sin nombre"
+                    notify_slack(
+                        webhook_url=settings.slack_webhook_url,
+                        channel=settings.slack_channel,
+                        dedupe=dedupe,
+                        notion_page_id=row.page_id,
+                        reason="missing_in_metricool",
+                        message=(
+                            f"<{row.url}|{title}>: está en Programado en Notion, pero no "
+                            "encontré ningún post en Metricool con ese texto. Revisa si "
+                            "salió: si salió, pásala a Publicado; si no, ponle una hora "
+                            "futura y pásala a Aprobado - Edición Final."
+                        ),
+                        dry_run=dry,
+                    )
                 else:
                     stats["skipped"] += 1
                     logger.info("No Metricool match for Notion page %s", row.page_id)
@@ -174,8 +193,8 @@ def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) ->
                     notion_page_id=row.page_id,
                     reason="metricool_error",
                     message=(
-                        f"BLOCKER: Metricool provider ERROR for {row.url}; "
-                        "left as Programado"
+                        f"{row.url}: el post salió con ERROR en Metricool; Notion sigue "
+                        "en Programado. Revisa el post en Metricool y vuelve a publicarlo."
                     ),
                     dry_run=dry,
                 )

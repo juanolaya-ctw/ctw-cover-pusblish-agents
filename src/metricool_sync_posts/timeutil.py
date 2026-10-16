@@ -61,3 +61,17 @@ def iso_metricool(dt: datetime) -> str:
     """ISO local datetime without offset (Metricool publicationDate.dateTime style)."""
     local = dt.astimezone(dt.tzinfo)
     return local.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def rolling_window_bounds(
+    reference: datetime, tz_name: str, *, back_days: int, ahead_days: int
+) -> tuple[datetime, datetime]:
+    """Start of (today - back_days) through end of (today + ahead_days), local time."""
+    local = reference.astimezone(tz(tz_name))
+    start = datetime.combine(
+        local.date() - timedelta(days=max(back_days, 0)), datetime.min.time(), tzinfo=tz(tz_name)
+    )
+    end = datetime.combine(
+        local.date() + timedelta(days=max(ahead_days, 0)), datetime.max.time(), tzinfo=tz(tz_name)
+    )
+    return start, end

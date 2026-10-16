@@ -67,9 +67,22 @@ class Settings(BaseSettings):
         ),
     )
     notion_prop_metricool_id: str = Field(
-        default="",
+        default="Metricool ID",
         alias="NOTION_PROP_METRICOOL_ID",
-        description="Optional Notion property storing the Metricool post id",
+        description=(
+            "Optional Notion text property storing the Metricool post id(s). "
+            "If the property does not exist the job logs a warning and continues."
+        ),
+    )
+    schedule_lookahead_days: int = Field(
+        default=10,
+        alias="SCHEDULE_LOOKAHEAD_DAYS",
+        description="Rolling window: schedule Aprobado rows from now to now+N days.",
+    )
+    schedule_lookback_days: int = Field(
+        default=7,
+        alias="SCHEDULE_LOOKBACK_DAYS",
+        description="Aprobado rows this many days in the past get an expiry alert.",
     )
     notion_prop_metricool_uuid: str = Field(
         default="",
@@ -102,7 +115,7 @@ class Settings(BaseSettings):
 
     slack_webhook_url: str | None = Field(default=None, alias="SLACK_WEBHOOK_URL")
     slack_channel: str = Field(default="#ct-growth", alias="SLACK_CHANNEL")
-    slack_dedupe_hours: int = Field(default=6, alias="SLACK_DEDUPE_HOURS")
+    slack_dedupe_hours: int = Field(default=24, alias="SLACK_DEDUPE_HOURS")
     slack_dedupe_file: Path = Field(
         default=Path(".data/slack-dedupe.json"),
         alias="SLACK_DEDUPE_FILE",

@@ -100,7 +100,7 @@ def test_exclude_ig_nico_before_media_pipeline():
         ),
         patch("metricool_sync_posts.jobs.schedule.notify_slack") as slack,
         patch(
-            "metricool_sync_posts.jobs.schedule.calendar_week_bounds",
+            "metricool_sync_posts.jobs.schedule.rolling_window_bounds",
             return_value=(
                 datetime(2026, 10, 5, 0, 0, tzinfo=ZoneInfo("America/Bogota")),
                 datetime(2026, 10, 11, 23, 59, tzinfo=ZoneInfo("America/Bogota")),
