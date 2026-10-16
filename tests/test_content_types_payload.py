@@ -5,6 +5,7 @@ from metricool_sync_posts.jobs.content_types import (
     build_schedule_body,
     infer_instagram_type,
     schedule_bodies,
+    tiktok_schedule_data,
 )
 
 
@@ -169,6 +170,9 @@ def test_combined_reel_splits_youtube_off_the_cover():
     assert "videoThumbnailUrl" not in youtube
     assert "instagramData" not in youtube
     assert "tiktokData" not in youtube
+    assert instagram["autoPublish"] is True
+    assert instagram["tiktokData"] == tiktok_schedule_data(photo=False)
+    assert instagram["tiktokData"]["privacyOption"] == "PUBLIC_TO_EVERYONE"
     assert youtube["media"] == ["https://v.mp4"]
     assert instagram["media"] == ["https://v.mp4"]
 
@@ -193,3 +197,6 @@ def test_youtube_without_a_cover_stays_on_the_same_post():
     assert "videoThumbnailUrl" not in posts[0]
     assert "thumbnail" not in posts[0]["youtubeData"]
     assert posts[0]["youtubeData"]["type"] == "short"
+    assert posts[0]["autoPublish"] is True
+    assert posts[0]["tiktokData"]["privacyOption"] == "PUBLIC_TO_EVERYONE"
+    assert posts[0]["tiktokData"]["disableDuet"] is False

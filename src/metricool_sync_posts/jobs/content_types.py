@@ -28,6 +28,10 @@ from metricool_sync_posts.timeutil import iso_metricool
 # post drops YouTube and keeps Instagram and TikTok. The row is skipped only
 # when no network remains.
 TIKTOK_PHOTO_POSTS = True
+# Omitting these leaves TikTok in manual-notification mode: Metricool later
+# shows Published with no TikTok post id or link. privacyOption and the three
+# interaction flags are the ScheduledPostTikTokData defaults the API expects.
+TIKTOK_PRIVACY_PUBLIC = "PUBLIC_TO_EVERYONE"
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +65,25 @@ def _media_kind(url: str) -> str:
     if ext in IMAGE_EXT:
         return "image"
     return "unknown"
+
+
+def tiktok_schedule_data(*, photo: bool) -> dict[str, Any]:
+    """TikTok block for every TikTok post, video or image.
+
+    ``autoPublish`` itself is top-level on the ScheduledPost (same flag as the
+    planner's Auto publish button). ``privacyOption`` has to be explicit or
+    TikTok rejects the post and Metricool falls back to a manual notification.
+    """
+    data: dict[str, Any] = {
+        "privacyOption": TIKTOK_PRIVACY_PUBLIC,
+        "disableComment": False,
+        "disableDuet": False,
+        "disableStitch": False,
+    }
+    if photo:
+        # Swagger ScheduledPostTikTokData.photoCoverIndex: 0 is the first image.
+        data["photoCoverIndex"] = 0
+    return data
 
 
 def urls_are_only_images(urls: list[str] | None) -> bool:
@@ -236,9 +259,11 @@ def build_schedule_body(
             # schedule_bodies() keeps it on Instagram and posts YouTube separately.
             body["videoThumbnailUrl"] = cover_url
         body["instagramData"] = ig_data
-    if "tiktok" in chosen and image_only:
-        # Swagger ScheduledPostTikTokData.photoCoverIndex: 0 is the first image.
-        body["tiktokData"] = {"photoCoverIndex": 0}
+    if "tiktok" in chosen:
+        # Top-level autoPublish is the planner switch. Without it TikTok stays
+        # in manual notification mode even when the provider later says Published.
+        body["autoPublish"] = True
+        body["tiktokData"] = tiktok_schedule_data(photo=image_only)
     return body
 
 

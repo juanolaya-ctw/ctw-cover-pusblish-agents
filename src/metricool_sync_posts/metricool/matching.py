@@ -427,6 +427,85 @@ def post_state(post: dict[str, Any]) -> str:
     return "UNKNOWN"
 
 
+_TIKTOK_ID_KEYS = frozenset(
+    {
+        "id",
+        "postid",
+        "publicationid",
+        "networkpostid",
+        "externalid",
+        "videoid",
+        "itemid",
+        "tiktokid",
+        "publishedid",
+    }
+)
+_TIKTOK_LINK_KEYS = frozenset(
+    {
+        "publicurl",
+        "url",
+        "link",
+        "posturl",
+        "permalink",
+        "shareurl",
+        "publishedurl",
+    }
+)
+
+
+def _ref_present(value: Any) -> bool:
+    if value is None or value is False:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (int, float)):
+        return value != 0
+    return False
+
+
+def _block_has_tiktok_ref(block: dict[str, Any]) -> bool:
+    """True when the block carries a TikTok post id or a public link."""
+    for key, value in block.items():
+        folded = str(key).replace("_", "").lower()
+        if folded in _TIKTOK_ID_KEYS or folded in _TIKTOK_LINK_KEYS:
+            if _ref_present(value):
+                return True
+        if isinstance(value, str) and "tiktok.com" in value.lower():
+            return True
+    return False
+
+
+def _provider_published(provider: dict[str, Any]) -> bool:
+    raw = provider.get("status")
+    if not isinstance(raw, str):
+        return False
+    upper = raw.strip().upper()
+    return upper == "PUBLISHED" or upper.startswith("PUBLISHED ")
+
+
+def tiktok_manual_publish(post: dict[str, Any]) -> bool:
+    """TikTok shows Published but never received a TikTok id or link.
+
+    Manual notification mode looks published in Metricool. The video did not
+    go out, so the Notion row must not move to Publicado.
+    """
+    providers = [
+        provider
+        for provider in (post.get("providers") or [])
+        if isinstance(provider, dict)
+        and str(provider.get("network") or "").strip().lower() == "tiktok"
+    ]
+    if not providers or not any(_provider_published(provider) for provider in providers):
+        return False
+    published = [provider for provider in providers if _provider_published(provider)]
+    if any(_block_has_tiktok_ref(provider) for provider in published):
+        return False
+    data = post.get("tiktokData")
+    if isinstance(data, dict) and _block_has_tiktok_ref(data):
+        return False
+    return True
+
+
 def combined_post_state(posts: list[dict[str, Any]]) -> str:
     """One state for a Notion row that became more than one Metricool post.
 
@@ -1284,6 +1363,23 @@ def post_format_groups(post: dict[str, Any]) -> frozenset[str]:
     if "youtube" in networks:
         groups.add(FORMAT_YOUTUBE)
     return frozenset(groups)
+
+
+def networks_for_format_groups(groups: set[str] | frozenset[str]) -> set[str]:
+    """Networks that own these format groups.
+
+    Instagram Stories and Instagram feed are the same network: a clash on
+    either one drops Instagram and leaves TikTok or YouTube free.
+    """
+    found: set[str] = set()
+    for group in groups:
+        if group in {FORMAT_INSTAGRAM_STORY, FORMAT_INSTAGRAM_FEED}:
+            found.add("instagram")
+        elif group == FORMAT_TIKTOK:
+            found.add("tiktok")
+        elif group == FORMAT_YOUTUBE:
+            found.add("youtube")
+    return found
 
 
 def describe_format_groups(groups: set[str] | frozenset[str]) -> str:

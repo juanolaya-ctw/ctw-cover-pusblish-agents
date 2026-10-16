@@ -79,7 +79,14 @@ def test_youtube_and_tiktok_images_drop_only_youtube(tmp_path, caplog):
     media.assert_called_once()
     body = metricool.create_scheduled_post.call_args.args[0]
     assert body["providers"] == [{"network": "tiktok"}]
-    assert body["tiktokData"] == {"photoCoverIndex": 0}
+    assert body["autoPublish"] is True
+    assert body["tiktokData"] == {
+        "privacyOption": "PUBLIC_TO_EVERYONE",
+        "disableComment": False,
+        "disableDuet": False,
+        "disableStitch": False,
+        "photoCoverIndex": 0,
+    }
     assert "instagramData" not in body
     assert "youtubeData" not in body
     assert "CAROUSEL" not in str(body)
@@ -104,7 +111,9 @@ def test_image_carousel_keeps_instagram_and_tiktok_drops_youtube(tmp_path, caplo
     assert [item["network"] for item in body["providers"]] == ["tiktok", "instagram"]
     assert body["instagramData"]["type"] == "POST"
     assert body["media"] == PNGS
-    assert body["tiktokData"] == {"photoCoverIndex": 0}
+    assert body["autoPublish"] is True
+    assert body["tiktokData"]["privacyOption"] == "PUBLIC_TO_EVERYONE"
+    assert body["tiktokData"]["photoCoverIndex"] == 0
     assert "youtubeData" not in body
     assert "CAROUSEL" not in str(body)
     assert "dropped=['youtube']" in caplog.text
@@ -149,7 +158,14 @@ def test_tiktok_photo_carousel_uses_photo_cover_index(tmp_path):
     assert stats["scheduled"] == 1
     body = metricool.create_scheduled_post.call_args.args[0]
     assert body["providers"] == [{"network": "tiktok"}]
-    assert body["tiktokData"] == {"photoCoverIndex": 0}
+    assert body["autoPublish"] is True
+    assert body["tiktokData"] == {
+        "privacyOption": "PUBLIC_TO_EVERYONE",
+        "disableComment": False,
+        "disableDuet": False,
+        "disableStitch": False,
+        "photoCoverIndex": 0,
+    }
     assert "youtubeData" not in body
     assert slack.call_args.kwargs["reason"] == "scheduled"
 
@@ -165,7 +181,14 @@ def test_video_still_schedules_on_youtube_and_tiktok(tmp_path):
     assert stats["scheduled"] == 1
     body = metricool.create_scheduled_post.call_args.args[0]
     assert body["youtubeData"]["type"] == "short"
-    assert "tiktokData" not in body
+    assert body["autoPublish"] is True
+    assert body["tiktokData"] == {
+        "privacyOption": "PUBLIC_TO_EVERYONE",
+        "disableComment": False,
+        "disableDuet": False,
+        "disableStitch": False,
+    }
+    assert "photoCoverIndex" not in body["tiktokData"]
 
 
 def test_skip_reason_matches_swagger_photo_support():

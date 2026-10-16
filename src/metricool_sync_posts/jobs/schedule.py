@@ -46,11 +46,13 @@ from metricool_sync_posts.metricool.matching import (
     format_match_evidence,
     missing_youtube_split_networks,
     nearest_network_post,
+    networks_for_format_groups,
     post_copy_is_thin,
     post_format_groups,
     post_stable_uuid,
     slot_occupant_blocks,
     split_stored_refs,
+    tiktok_manual_publish,
 )
 from metricool_sync_posts.metricool.profiles import load_connected_networks
 from metricool_sync_posts.notion.client import NotionRepository
@@ -78,6 +80,7 @@ REASON_LABELS_ES: dict[str, str] = {
     "placeholder_caption": "el Caption tiene un texto de relleno",
     "missing_caption": "falta el Caption",
     "slot_conflict": "choque de horario con otra pieza",
+    "tiktok_manual_publish": "TikTok quedó en publicación manual y no salió",
     "ambiguous_duplicate": "varios posts de Metricool parecen ser esta pieza",
     "invalid_archivo_final": '"Archivo Final" no tiene un link válido',
     "missing_hook": 'falta "Titulo" (YouTube)',
@@ -462,10 +465,33 @@ def _reconcile_existing(
             digest=digest,
         )
         return
-    if state == "PUBLISHED":
+    # Published in the planner is not a TikTok post when the provider has no
+    # TikTok id and no public link. That is manual notification mode.
+    manual_tiktok = any(tiktok_manual_publish(item) for item in group)
+    if manual_tiktok:
+        logger.warning(
+            "TikTok manual publish for %s Metricool %s; Notion stays off Publicado",
+            row.page_id,
+            post_id,
+        )
+        notify_slack(
+            webhook_url=settings.slack_webhook_url,
+            channel=settings.slack_channel,
+            dedupe=dedupe,
+            notion_page_id=row.page_id,
+            reason="tiktok_manual_publish",
+            message=(
+                f"{_piece_label(row)}: TikTok quedó en publicación manual / no salió. "
+                "Metricool lo marca como Published, pero no hay id ni enlace de TikTok. "
+                "Notion no pasa a Publicado."
+            ),
+            dry_run=dry,
+            digest=digest,
+        )
+    if state == "PUBLISHED" and not manual_tiktok:
         target = settings.notion_status_published
     else:
-        # PENDING / SCHEDULED / UNKNOWN still sitting in the calendar.
+        # PENDING / SCHEDULED / UNKNOWN, or a TikTok that never left Metricool.
         target = settings.notion_status_scheduled
     if dry:
         logger.info(
@@ -885,7 +911,15 @@ def run_schedule(
                             row.page_id,
                         )
                 if blocking or peers:
-                    stats["skipped"] += 1
+                    clashing: set[str] = set()
+                    for occupant in blocking:
+                        clashing |= set(groups) & set(post_format_groups(occupant))
+                    for peer in peers:
+                        clashing |= set(groups) & set(peer["groups"])
+                    clashing_networks = {
+                        net for net in networks if net in networks_for_format_groups(clashing)
+                    }
+                    free_networks = [net for net in networks if net not in clashing_networks]
                     for occupant in blocking:
                         if post_copy_is_thin(occupant):
                             logger.info(
@@ -915,11 +949,6 @@ def run_schedule(
                             describe_format_groups(groups & peer["groups"]),
                         )
                     who = _conflict_parties(groups=groups, blocking=blocking, peers=peers)
-                    logger.warning(
-                        "Skip %s: slot_conflict with %s",
-                        row.page_id,
-                        who,
-                    )
                     empty_slot = any(post_copy_is_thin(post) for post in blocking)
                     if empty_slot:
                         why = "cuyo texto está vacío o es muy corto para compararlo"
@@ -929,15 +958,49 @@ def run_schedule(
                         why = "y esta pieza es una Historia"
                     else:
                         why = "que es otra pieza (el texto no coincide)"
-                    _alert(
-                        ctx,
-                        row,
-                        "slot_conflict",
-                        f"no se programó: a menos de 15 minutos ya está {who}, {why}. "
-                        'Cambia la hora en "Publicación" de Notion (o confirma en Metricool '
-                        "si ese post es esta misma pieza). Notion no se cambió.",
-                    )
-                    continue
+                    # A clash is per network+format. Drop only the networks that
+                    # share a group and keep scheduling the rest of the row.
+                    partial = bool(free_networks) and bool(clashing_networks)
+                    if partial:
+                        kept_groups = publication_format_groups(
+                            free_networks,
+                            title=row.title,
+                            content_type=row.content_type,
+                        )
+                        logger.warning(
+                            "Partial %s: slot_conflict on %s with %s; scheduling %s",
+                            row.page_id,
+                            sorted(clashing_networks),
+                            who,
+                            free_networks,
+                        )
+                        _alert(
+                            ctx,
+                            row,
+                            "slot_conflict",
+                            f"{describe_format_groups(clashing)} no se programó: a menos de "
+                            f"15 minutos ya está {who}, {why}. "
+                            f"{describe_format_groups(kept_groups)} sí se programa. "
+                            'Cambia la hora en "Publicación" de Notion para la red que '
+                            "chocó (o confirma en Metricool si ese post es esta misma pieza).",
+                        )
+                        networks = free_networks
+                    else:
+                        stats["skipped"] += 1
+                        logger.warning(
+                            "Skip %s: slot_conflict with %s",
+                            row.page_id,
+                            who,
+                        )
+                        _alert(
+                            ctx,
+                            row,
+                            "slot_conflict",
+                            f"no se programó: a menos de 15 minutos ya está {who}, {why}. "
+                            'Cambia la hora en "Publicación" de Notion (o confirma en '
+                            "Metricool si ese post es esta misma pieza). Notion no se cambió.",
+                        )
+                        continue
             if expired:
                 stats["skipped"] += 1
                 logger.warning(
