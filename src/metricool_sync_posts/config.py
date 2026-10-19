@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import AliasChoices, Field, computed_field
+from pydantic import AliasChoices, Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -114,6 +114,9 @@ class Settings(BaseSettings):
     s3_public_base_url: str | None = Field(default=None, alias="S3_PUBLIC_BASE_URL")
 
     slack_webhook_url: str | None = Field(default=None, alias="SLACK_WEBHOOK_URL")
+    slack_webhook_programacion: str | None = Field(
+        default=None, alias="SLACK_WEBHOOK_PROGRAMACION"
+    )
     slack_channel: str = Field(default="#ct-growth", alias="SLACK_CHANNEL")
     slack_dedupe_hours: int = Field(default=24, alias="SLACK_DEDUPE_HOURS")
     slack_dedupe_file: Path = Field(
@@ -154,6 +157,18 @@ class Settings(BaseSettings):
         if self.require_cover_for_schedule_override is not None:
             return self.require_cover_for_schedule_override
         return True
+
+    @model_validator(mode="after")
+    def _fill_slack_webhook(self) -> Settings:
+        """Use the programación webhook when SLACK_WEBHOOK_URL is empty.
+
+        The value is never logged. SLACK_WEBHOOK_URL wins when both are set.
+        """
+        url = (self.slack_webhook_url or "").strip()
+        programacion = (self.slack_webhook_programacion or "").strip()
+        if not url and programacion:
+            self.slack_webhook_url = programacion
+        return self
 
     def schedule_exclude_channels_set(self) -> frozenset[str]:
         parts = [p.strip() for p in self.schedule_exclude_channels.split(",") if p.strip()]

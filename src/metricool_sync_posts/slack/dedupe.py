@@ -36,28 +36,44 @@ class DedupeStore:
             return {}
         data: dict[str, dict] = {}
         for key, value in raw.items():
-            try:
-                if isinstance(value, dict):
-                    data[str(key)] = {
-                        "ts": float(value.get("ts") or 0),
-                        "fp": str(value.get("fp") or ""),
-                    }
-                else:
-                    # Legacy format: {key: timestamp}.
-                    data[str(key)] = {"ts": float(value), "fp": ""}
-            except (TypeError, ValueError):
-                continue
+            entry = self._entry(value)
+            if entry is not None:
+                data[str(key)] = entry
         return data
 
     def _save(self, data: dict[str, dict]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
+    def _entry(self, value: object) -> dict | None:
+        try:
+            if isinstance(value, dict):
+                entry = {
+                    "ts": float(value.get("ts") or 0),
+                    "fp": str(value.get("fp") or ""),
+                }
+                if value.get("once") is True:
+                    entry["once"] = True
+                return entry
+            # Legacy format: {key: timestamp}.
+            return {"ts": float(value), "fp": ""}
+        except (TypeError, ValueError):
+            return None
+
+    def _prune(self, data: dict[str, dict], now: float) -> None:
+        """Drop expired reminders. Once-only keys stay until the file is removed."""
+        stale = [
+            key
+            for key, value in data.items()
+            if not value.get("once") and now - value["ts"] > self.history_seconds
+        ]
+        for key in stale:
+            data.pop(key, None)
+
     def should_notify(self, key: str, message: str | None = None) -> bool:
         now = time.time()
         data = self._load()
-        for stale in [k for k, v in data.items() if now - v["ts"] > self.history_seconds]:
-            data.pop(stale, None)
+        self._prune(data, now)
         fp = fingerprint(message) if message is not None else ""
         last = data.get(key)
         if last is not None and now - last["ts"] <= self.ttl_seconds:
@@ -66,6 +82,18 @@ class DedupeStore:
                 self._save(data)
                 return False
         data[key] = {"ts": now, "fp": fp}
+        self._save(data)
+        return True
+
+    def claim_once(self, key: str) -> bool:
+        """True only the first time ``key`` is seen. Later runs never repeat it."""
+        now = time.time()
+        data = self._load()
+        self._prune(data, now)
+        if key in data:
+            self._save(data)
+            return False
+        data[key] = {"ts": now, "fp": "once", "once": True}
         self._save(data)
         return True
 

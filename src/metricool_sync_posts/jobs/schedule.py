@@ -25,6 +25,10 @@ from metricool_sync_posts.jobs.content_types import (
     schedule_bodies,
     video_network_skip_reason,
 )
+from metricool_sync_posts.jobs.parrilla_alerts import (
+    alert_manual_reels,
+    review_programado_gaps,
+)
 from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
 from metricool_sync_posts.media.errors import MediaHostError
 from metricool_sync_posts.media.final_file import (
@@ -636,32 +640,52 @@ def run_schedule(
         cap = settings.schedule_max_per_run
 
     existing_posts: list[dict] = []
-    if rows:
-        try:
-            raw_posts = metricool.get_scheduled_posts(
-                week_start - timedelta(days=7),
-                week_end + timedelta(days=7),
-                extended_range=True,
-            )
-        except Exception:
+    posts_loaded = False
+    try:
+        raw_posts = metricool.get_scheduled_posts(
+            week_start - timedelta(days=7),
+            week_end + timedelta(days=7),
+            extended_range=True,
+        )
+    except Exception:
+        if rows:
             logger.exception("Metricool duplicate lookup failed; not creating posts this run")
             stats["errors"] += 1
             metricool.close()
             return stats
+        logger.exception("Metricool lookup failed; Programado alerts skipped this run")
+    else:
         existing_posts = _as_post_list(raw_posts)
+        posts_loaded = True
         logger.info("Loaded %s Metricool posts for duplicate check", len(existing_posts))
 
+    linked_rows = _linked_rows(
+        notion, week_start - timedelta(days=7), week_end + timedelta(days=7)
+    )
     claimed = _claim_linked_posts(
         notion=notion,
-        linked_rows=_linked_rows(
-            notion, week_start - timedelta(days=7), week_end + timedelta(days=7)
-        ),
+        linked_rows=linked_rows,
         approved_ids={row.page_id for row in rows},
         existing_posts=existing_posts,
         exclude=exclude,
         tz_name=settings.timezone,
         connected=connected,
     )
+    if posts_loaded:
+        # Programado with no Metricool post, and manual Reels missing a cover.
+        # Estado is not changed here and the Metricool post is not edited.
+        review_programado_gaps(
+            settings=settings,
+            notion=notion,
+            dedupe=dedupe,
+            digest=digest,
+            guard=guard,
+            rows=linked_rows,
+            posts=existing_posts,
+            window_start=week_start,
+            window_end=week_end,
+            dry=dry,
+        )
     if claimed:
         logger.info("Metricool posts already claimed by other Notion rows: %s", sorted(claimed))
 
@@ -796,6 +820,15 @@ def run_schedule(
                         dry=dry,
                         digest=digest,
                     )
+                    alert_manual_reels(
+                        settings=settings,
+                        dedupe=dedupe,
+                        digest=digest,
+                        guard=guard,
+                        row=row,
+                        posts=hits,
+                        dry=dry,
+                    )
                     for hit in hits:
                         _remember_claim(claimed, hit, row.page_id)
                     stats["reconciled"] += 1
@@ -845,6 +878,15 @@ def run_schedule(
                         f"pieza ({', '.join(str(i) for i in ids)}). Borra los duplicados en "
                         "Metricool; Notion no se cambió.",
                     )
+                    alert_manual_reels(
+                        settings=settings,
+                        dedupe=dedupe,
+                        digest=digest,
+                        guard=guard,
+                        row=row,
+                        posts=hits,
+                        dry=dry,
+                    )
                     continue
                 if len(hits) == 1 and not completing_split:
                     chosen = hits[0]
@@ -870,6 +912,15 @@ def run_schedule(
                         post=chosen,
                         dry=dry,
                         digest=digest,
+                    )
+                    alert_manual_reels(
+                        settings=settings,
+                        dedupe=dedupe,
+                        digest=digest,
+                        guard=guard,
+                        row=row,
+                        posts=[chosen],
+                        dry=dry,
                     )
                     _remember_claim(claimed, chosen, row.page_id)
                     stats["reconciled"] += 1

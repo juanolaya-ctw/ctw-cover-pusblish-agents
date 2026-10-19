@@ -808,10 +808,14 @@ def test_confirm_uses_provider_status_and_vanished_rule(tmp_path):
     for call in notion.set_status.call_args_list:
         assert call.args[1] == "Publicado"
         assert call.kwargs["dry_run"] is False
-    # Provider ERROR blocker + missing-in-Metricool alert.
-    assert slack_post.call_count == 2
+    # Provider ERROR, vanished piece, and the future Programado with no Metricool post.
+    assert slack_post.call_count == 3
     texts = [c.kwargs["json"]["text"] for c in slack_post.call_args_list]
     assert any("no encontré ningún post en Metricool" in t for t in texts)
+    future = next(t for t in texts if "page-future" in t)
+    assert "está en Programado" in future
+    assert "Cómo arreglar: pasar la pieza a Aprobado con hora futura" in future
+    assert "https://hooks.slack" not in future
 
 
 def test_confirm_dry_run_does_not_write(tmp_path):
