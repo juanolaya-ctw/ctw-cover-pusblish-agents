@@ -10,6 +10,18 @@ from metricool_sync_posts.slack.notify import post_to_slack
 logger = logging.getLogger(__name__)
 
 _OK_REASONS = frozenset({"scheduled"})
+# One shared hint when the piece is missing copy or the slot already passed.
+_FIX_REASONS = frozenset(
+    {
+        "missing_hook",
+        "missing_caption",
+        "past_publication_date",
+        "copy_needs_confirm",
+    }
+)
+_HOW_TO_FIX = (
+    'Cómo arreglar: llena "Titulo" y "Caption", o pon una fecha y hora futura en "Publicación".'
+)
 # Slack rejects very long messages; keep a safe margin.
 _MAX_CHARS = 35000
 
@@ -48,6 +60,8 @@ class SlackDigest:
             lines.append("")
             lines.append(f":warning: *Necesitan atención ({len(problems)})*")
             lines.extend(f"• {item['message']}" for item in problems)
+            if any(item["reason"] in _FIX_REASONS for item in problems):
+                lines.append(_HOW_TO_FIX)
         if done:
             lines.append("")
             lines.append(f":white_check_mark: *Programadas en esta corrida ({len(done)})*")

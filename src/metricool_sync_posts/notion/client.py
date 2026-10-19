@@ -19,6 +19,18 @@ from metricool_sync_posts.timeutil import publication_sort_key
 
 logger = logging.getLogger(__name__)
 
+# Notion rich_text content is limited to 2000 characters per object.
+_RICH_TEXT_CHUNK = 2000
+
+
+def _rich_text_chunks(content: str) -> list[dict[str, Any]]:
+    chunks: list[dict[str, Any]] = []
+    rest = content
+    while rest:
+        chunks.append({"type": "text", "text": {"content": rest[:_RICH_TEXT_CHUNK]}})
+        rest = rest[_RICH_TEXT_CHUNK:]
+    return chunks
+
 
 class NotionRepository:
     def __init__(self, settings: Settings) -> None:
@@ -241,6 +253,42 @@ class NotionRepository:
             )
             return False
         logger.info("Notion %s stored Metricool ids=%s uuids=%s", page_id, clean_ids, clean_uuids)
+        return True
+
+    def set_rich_text_properties(
+        self,
+        page_id: str,
+        values: dict[str, str],
+        *,
+        dry_run: bool,
+    ) -> bool:
+        """Write plain text into rich-text properties. Empty values are skipped.
+
+        Used to copy a confident Título/caption out of the page body. A missing
+        property logs a warning and does not fail the schedule run.
+        """
+        props: dict[str, Any] = {}
+        for name, text in values.items():
+            cleaned = (text or "").strip()
+            if not name or not cleaned:
+                continue
+            props[name] = {"rich_text": _rich_text_chunks(cleaned)}
+        if not props:
+            return False
+        if dry_run:
+            logger.info("[dry-run] Notion %s would set %s", page_id, sorted(props))
+            return False
+        try:
+            self._client.pages.update(page_id=page_id, properties=props)
+        except APIResponseError as exc:
+            logger.warning(
+                "Could not write Titulo/Caption on %s (properties %s): %s",
+                page_id,
+                list(props),
+                exc,
+            )
+            return False
+        logger.info("Notion %s stored %s", page_id, sorted(props))
         return True
 
     def list_databases(self) -> list[dict[str, Any]]:
