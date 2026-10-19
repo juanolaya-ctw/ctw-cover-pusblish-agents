@@ -55,6 +55,7 @@ from metricool_sync_posts.metricool.matching import (
     tiktok_manual_publish,
 )
 from metricool_sync_posts.metricool.profiles import load_connected_networks
+from metricool_sync_posts.notion.body_copy import resolve_row_copy
 from metricool_sync_posts.notion.client import NotionRepository
 from metricool_sync_posts.slack.dedupe import DedupeStore
 from metricool_sync_posts.slack.digest import SlackDigest
@@ -79,6 +80,7 @@ REASON_LABELS_ES: dict[str, str] = {
     "missing_time": '"Publicación" no tiene hora',
     "placeholder_caption": "el Caption tiene un texto de relleno",
     "missing_caption": "falta el Caption",
+    "copy_needs_confirm": "el Título y el Caption del cuerpo necesitaban confirmación",
     "slot_conflict": "choque de horario con otra pieza",
     "tiktok_manual_publish": "TikTok quedó en publicación manual y no salió",
     "ambiguous_duplicate": "varios posts de Metricool parecen ser esta pieza",
@@ -120,6 +122,13 @@ def _alert(ctx: dict, row, reason: str, text: str) -> None:
 
 def _fmt_local(dt: datetime) -> str:
     return dt.strftime("%d/%m %I:%M %p").lower().replace("am", "a. m.").replace("pm", "p. m.")
+
+
+def _skip_expired(ctx: dict, guard: ScheduleGuard, row, pub: datetime) -> None:
+    """Alert the past slot and drop any claim so a new future time can schedule."""
+    if not ctx["dry"]:
+        guard.release(ctx["settings"].metricool_blog_id, row.page_id)
+    _alert(ctx, row, "past_publication_date", _expired_text(ctx, row, pub))
 
 
 def _expired_text(ctx: dict, row, pub: datetime) -> str:
@@ -723,7 +732,16 @@ def run_schedule(
                     "hora. Ponle la hora en Notion.",
                 )
                 continue
-            caption = caption_for_row(notion, row)
+            resolved = resolve_row_copy(
+                notion,
+                row,
+                networks=networks,
+                dry_run=dry,
+                caption_property=settings.notion_prop_caption,
+                titulo_property=settings.notion_prop_cover_text,
+                require_cover=settings.require_cover_for_schedule,
+            )
+            caption = resolved.caption
             story = is_story_type(row.content_type)
             if caption and caption_has_placeholder(caption):
                 stats["skipped"] += 1
@@ -864,7 +882,7 @@ def run_schedule(
                         row.page_id,
                         pub,
                     )
-                    _alert(ctx, row, "past_publication_date", _expired_text(ctx, row, pub))
+                    _skip_expired(ctx, guard, row, pub)
                     continue
                 groups = publication_format_groups(
                     networks,
@@ -1008,7 +1026,17 @@ def run_schedule(
                     row.page_id,
                     pub,
                 )
-                _alert(ctx, row, "past_publication_date", _expired_text(ctx, row, pub))
+                _skip_expired(ctx, guard, row, pub)
+                continue
+            if resolved.skip_reason:
+                stats["skipped"] += 1
+                logger.warning("Skip %s: %s", row.page_id, resolved.skip_reason)
+                _alert(
+                    ctx,
+                    row,
+                    resolved.skip_reason,
+                    resolved.skip_message or resolved.skip_reason,
+                )
                 continue
             if not caption and not story:
                 stats["skipped"] += 1
@@ -1055,7 +1083,7 @@ def run_schedule(
             if (
                 not dry
                 and not completing_split
-                and guard.contains(settings.metricool_blog_id, row.page_id)
+                and guard.blocks(settings.metricool_blog_id, row.page_id, pub)
             ):
                 stats["skipped"] += 1
                 logger.warning(
@@ -1224,7 +1252,9 @@ def run_schedule(
                 # Reserve BEFORE POST: timeout/Notion failure must never auto-resend.
                 # Completing a split reuses the reservation from the half that
                 # already exists, and creates only the missing network.
-                reserved = guard.reserve(settings.metricool_blog_id, row.page_id)
+                # A different Publicación replaces the claim so a new future
+                # time is not stuck on the attempt that already expired.
+                reserved = guard.reserve(settings.metricool_blog_id, row.page_id, pub)
                 if not reserved and not completing_split:
                     stats["skipped"] += 1
                     continue
