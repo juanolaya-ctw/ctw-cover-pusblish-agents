@@ -538,6 +538,99 @@ def _value_present(value: Any) -> bool:
     return value not in (None, "", [], {})
 
 
+# Same fields jobs.content_types._SHARED_COVER_KEYS treats as a cover on the
+# whole ScheduledPost. The schedule upload writes the JPEG to videoThumbnailUrl
+# (cover/attach.py). instagramData has no cover property in the swagger.
+_COVER_URL_KEYS = (
+    "videoThumbnailUrl",
+    "videoThumbnail",
+    "thumbnail",
+    "thumbnailUrl",
+    "coverUrl",
+    "videoCoverUrl",
+)
+_REEL_IG_TYPES = frozenset({"REEL", "TRIAL_REEL"})
+_PUBLIC_LINK_KEYS = (
+    "publicUrl",
+    "permalink",
+    "postUrl",
+    "shareUrl",
+    "publishedUrl",
+    "url",
+    "link",
+)
+
+
+def _cover_frame_selected(value: Any) -> bool:
+    """True when videoCoverMilliseconds picks a frame.
+
+    A positive number is an explicit cover frame. 0, null, and a blank string
+    are what a manual upload leaves when nobody chose a cover.
+    """
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value > 0
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return False
+        try:
+            return float(text) > 0
+        except ValueError:
+            return False
+    return False
+
+
+def _cover_blocks(post: dict[str, Any]) -> list[dict[str, Any]]:
+    blocks = [post]
+    ig = post.get("instagramData")
+    if isinstance(ig, dict):
+        blocks.append(ig)
+    return blocks
+
+
+def post_has_cover(post: dict[str, Any]) -> bool:
+    """True when Metricool already has a reel cover or a chosen video frame.
+
+    The schedule path stores the JPEG on top-level ``videoThumbnailUrl``.
+    ``videoCoverMilliseconds`` > 0 means a frame of the video was selected.
+    """
+    for block in _cover_blocks(post):
+        for key in _COVER_URL_KEYS:
+            if _value_present(block.get(key)):
+                return True
+        if _cover_frame_selected(block.get("videoCoverMilliseconds")):
+            return True
+    return False
+
+
+def is_instagram_reel_post(post: dict[str, Any]) -> bool:
+    """Instagram REEL or TRIAL_REEL, from ``instagramData.type``."""
+    ig = post.get("instagramData")
+    if not isinstance(ig, dict):
+        return False
+    kind = str(ig.get("type") or "").strip().upper()
+    return kind in _REEL_IG_TYPES
+
+
+def post_public_link(post: dict[str, Any]) -> str | None:
+    """Public URL on the post, its Instagram block, or an Instagram provider."""
+    blocks = _cover_blocks(post)
+    for provider in post.get("providers") or []:
+        if not isinstance(provider, dict):
+            continue
+        network = str(provider.get("network") or "").strip().lower()
+        if network in {"", "instagram"}:
+            blocks.append(provider)
+    for block in blocks:
+        for key in _PUBLIC_LINK_KEYS:
+            value = block.get(key)
+            if isinstance(value, str) and value.strip().lower().startswith("http"):
+                return value.strip()
+    return None
+
+
 def covers_youtube_split(posts: list[dict[str, Any]], wanted: set[str]) -> bool:
     """True when ``posts`` are the two halves of one YouTube/cover row.
 

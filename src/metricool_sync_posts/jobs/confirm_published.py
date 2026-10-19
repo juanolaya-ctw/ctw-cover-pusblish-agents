@@ -11,6 +11,11 @@ from metricool_sync_posts.jobs.common import (
     metricool_fetch_window_for_confirm,
     publication_dt,
 )
+from metricool_sync_posts.jobs.parrilla_alerts import (
+    alert_manual_reels,
+    notify_programado_sin_metricool,
+)
+from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
 from metricool_sync_posts.media.expiry import due_within_24h, media_url_live, post_media_urls
 from metricool_sync_posts.metricool.client import MetricoolClient
 from metricool_sync_posts.metricool.matching import (
@@ -24,6 +29,7 @@ from metricool_sync_posts.metricool.matching import (
 )
 from metricool_sync_posts.notion.client import NotionRepository
 from metricool_sync_posts.slack.dedupe import DedupeStore
+from metricool_sync_posts.slack.digest import SlackDigest
 from metricool_sync_posts.slack.notify import notify_slack
 from metricool_sync_posts.timeutil import now_in, publication_window
 
@@ -104,8 +110,17 @@ def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) ->
         path=settings.slack_dedupe_file,
         ttl_seconds=settings.slack_dedupe_hours * 3600,
     )
+    guard = ScheduleGuard(settings.media_work_dir.parent / "schedule-guard.sqlite3")
 
     now = now_in(settings.timezone)
+    digest = SlackDigest(
+        webhook_url=settings.slack_webhook_url,
+        channel=settings.slack_channel,
+        header=(
+            f":calendar: *Programación CTW — confirmación {now.strftime('%d/%m %H:%M')}* "
+            "(solo avisos nuevos o que cambiaron)"
+        ),
+    )
     center = now.date()
     win_start, win_end = publication_window(
         center, settings.timezone, settings.publication_window_days
@@ -175,7 +190,13 @@ def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) ->
                     )
                 else:
                     stats["skipped"] += 1
-                    logger.info("No Metricool match for Notion page %s", row.page_id)
+                    notify_programado_sin_metricool(
+                        settings=settings,
+                        dedupe=dedupe,
+                        digest=digest,
+                        row=row,
+                        dry=dry,
+                    )
                 continue
             # A reel cover and YouTube are two posts. Both have to be published.
             group = youtube_split_companions(
@@ -183,6 +204,15 @@ def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) ->
                 mc_posts,
                 notion_channel=row.channel,
                 tz_name=settings.timezone,
+            )
+            alert_manual_reels(
+                settings=settings,
+                dedupe=dedupe,
+                digest=digest,
+                guard=guard,
+                row=row,
+                posts=group,
+                dry=dry,
             )
             state = combined_post_state(group)
             if state == "ERROR":
@@ -252,5 +282,7 @@ def run_confirm_published(*, settings: Settings, dry_run: bool | None = None) ->
             stats["errors"] += 1
             logger.exception("confirm_published failed for %s", row.page_id)
 
+    if not dry:
+        digest.flush()
     metricool.close()
     return stats

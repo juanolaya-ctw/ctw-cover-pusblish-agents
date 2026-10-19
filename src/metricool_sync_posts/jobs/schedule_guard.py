@@ -43,6 +43,17 @@ class ScheduleGuard:
                 "SELECT 1 FROM attempts WHERE brand=? AND page=?", (brand, page)
             ).fetchone() is not None
 
+    def seen(self, brand: str, page: str) -> bool:
+        """True when this page was reserved by the sync.
+
+        A missing file means the sync never created the post. Unlike
+        ``contains``, this does not create the database (a dry-run must not
+        leave ``schedule-guard.sqlite3`` behind).
+        """
+        if not self.path.exists():
+            return False
+        return self.contains(brand, page)
+
     def blocks(self, brand: str, page: str, publication: datetime) -> bool:
         """True when a previous attempt still owns this page at this time.
 

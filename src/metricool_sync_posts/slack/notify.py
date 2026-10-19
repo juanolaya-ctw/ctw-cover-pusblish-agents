@@ -33,17 +33,26 @@ def notify_slack(
     digest=None,
     title: str | None = None,
     url: str | None = None,
+    once: bool = False,
+    dedupe_id: str | None = None,
 ) -> None:
-    """Send (or queue into ``digest``) one alert, deduped by page+reason+text."""
+    """Send (or queue into ``digest``) one alert, deduped by page+reason+text.
+
+    ``once`` alerts a single time per ``dedupe_id`` (or page) and does not
+    repeat after ``SLACK_DEDUPE_HOURS``. Dry-run still skips the webhook and
+    does not write the dedupe file.
+    """
     if not webhook_url and digest is None:
         return
     if dry_run:
         # No webhook call and no dedupe file write.
         logger.info("[dry-run] Slack: %s", message)
         return
-    key = alert_key(notion_page_id, reason)
-    if not dedupe.should_notify(key, message):
-        logger.info("Slack dedupe skip page=%s reason=%s", notion_page_id, reason)
+    identity = dedupe_id or notion_page_id
+    key = alert_key(identity, reason)
+    fresh = dedupe.claim_once(key) if once else dedupe.should_notify(key, message)
+    if not fresh:
+        logger.info("Slack dedupe skip page=%s reason=%s", identity, reason)
         return
     if digest is not None:
         digest.add(

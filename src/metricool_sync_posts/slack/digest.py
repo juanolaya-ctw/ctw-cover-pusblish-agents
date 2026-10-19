@@ -11,17 +11,25 @@ logger = logging.getLogger(__name__)
 
 _OK_REASONS = frozenset({"scheduled"})
 # One shared hint when the piece is missing copy or the slot already passed.
-_FIX_REASONS = frozenset(
-    {
-        "missing_hook",
-        "missing_caption",
-        "past_publication_date",
-        "copy_needs_confirm",
-    }
-)
 _HOW_TO_FIX = (
     'Cómo arreglar: llena "Titulo" y "Caption", o pon una fecha y hora futura en "Publicación".'
 )
+_FIX_PROGRAMADO = (
+    "Cómo arreglar: pasar la pieza a Aprobado con hora futura para que el sync la cree "
+    "(o revisar si se borró en Metricool)"
+)
+_FIX_REEL = (
+    "Cómo arreglar: si aún no sale, elegir portada en Metricool antes de la hora; "
+    "si ya salió, editar portada desde la app de Instagram"
+)
+_FIX_BY_REASON = {
+    "missing_hook": _HOW_TO_FIX,
+    "missing_caption": _HOW_TO_FIX,
+    "past_publication_date": _HOW_TO_FIX,
+    "copy_needs_confirm": _HOW_TO_FIX,
+    "programado_sin_metricool": _FIX_PROGRAMADO,
+    "reel_manual_sin_portada": _FIX_REEL,
+}
 # Slack rejects very long messages; keep a safe margin.
 _MAX_CHARS = 35000
 
@@ -60,8 +68,12 @@ class SlackDigest:
             lines.append("")
             lines.append(f":warning: *Necesitan atención ({len(problems)})*")
             lines.extend(f"• {item['message']}" for item in problems)
-            if any(item["reason"] in _FIX_REASONS for item in problems):
-                lines.append(_HOW_TO_FIX)
+            fixes: list[str] = []
+            for item in problems:
+                fix = _FIX_BY_REASON.get(item["reason"])
+                if fix and fix not in fixes:
+                    fixes.append(fix)
+            lines.extend(fixes)
         if done:
             lines.append("")
             lines.append(f":white_check_mark: *Programadas en esta corrida ({len(done)})*")
