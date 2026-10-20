@@ -14,7 +14,11 @@ from metricool_sync_posts.media.drive_folder import (
     list_folder_files,
     pick_folder_entries,
 )
-from metricool_sync_posts.media.dropbox_host import list_shared_folder, pick_shared_entries
+from metricool_sync_posts.media.dropbox_host import (
+    entry_in_account,
+    list_shared_folder,
+    pick_shared_entries,
+)
 from metricool_sync_posts.media.final_file import FinalFileKind, classify_final_file
 from metricool_sync_posts.media.pipeline import prepare_media_for_metricool
 from metricool_sync_posts.media.urls import is_dropbox_folder_url
@@ -33,6 +37,8 @@ class SourceMedia:
     size: int | None = None
     dropbox_file_id: str | None = None
     dropbox_name: str | None = None
+    dropbox_path: str | None = None
+    dropbox_in_account: bool = False
 
 
 def _is_carousel(content_type: str | None) -> bool:
@@ -116,11 +122,16 @@ def _dropbox_folder_sources(
     for entry in picked:
         file_id = str(entry.get("id") or "").strip()
         name = entry.get("name") if isinstance(entry.get("name"), str) else None
+        relative = str(entry.get("relative_path") or "").strip()
+        if not relative and name:
+            relative = f"/{name.lstrip('/')}"
         sources.append(
             SourceMedia(
                 url=folder_url,
                 dropbox_file_id=file_id or None,
                 dropbox_name=name,
+                dropbox_path=relative or None,
+                dropbox_in_account=entry_in_account(entry),
                 size=_size(entry.get("size")),
             )
         )
@@ -211,6 +222,8 @@ def prepare_media_urls_for_metricool(
             drive_file_id=src.drive_file_id,
             dropbox_file_id=src.dropbox_file_id,
             dropbox_name=src.dropbox_name,
+            dropbox_path=src.dropbox_path,
+            dropbox_in_account=src.dropbox_in_account,
             networks=networks,
         )
         if url:

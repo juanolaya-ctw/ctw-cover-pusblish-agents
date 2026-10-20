@@ -459,10 +459,11 @@ def test_carousel_folder_uploads_images_and_reel_uploads_video(tmp_path: Path):
         del client
         return entries
 
-    def fake_download(_settings, file_id, dest, client=None):
+    def fake_download(_settings, shared_url, relative_path, dest, client=None):
         del client
-        downloaded.append(file_id)
-        dest.write_bytes(PNG if file_id != "id:VID" else MP4)
+        assert shared_url == FOLDER
+        downloaded.append(relative_path)
+        dest.write_bytes(PNG if not relative_path.endswith(".mp4") else MP4)
         return dest
 
     class Metricool:
@@ -477,7 +478,7 @@ def test_carousel_folder_uploads_images_and_reel_uploads_video(tmp_path: Path):
     with (
         patch("metricool_sync_posts.media.resolve.list_shared_folder", side_effect=fake_list),
         patch(
-            "metricool_sync_posts.media.pipeline.download_shared_file",
+            "metricool_sync_posts.media.pipeline.download_shared_link_file",
             side_effect=fake_download,
         ),
     ):
@@ -489,7 +490,7 @@ def test_carousel_folder_uploads_images_and_reel_uploads_video(tmp_path: Path):
             dry_run=False,
             networks=["instagram"],
         )
-        assert downloaded == ["id:VID"]
+        assert downloaded == ["/reel\u00a0final.mp4"]
         downloaded.clear()
         carousel = prepare_media_urls_for_metricool(
             settings=settings,
@@ -500,7 +501,7 @@ def test_carousel_folder_uploads_images_and_reel_uploads_video(tmp_path: Path):
             networks=["instagram"],
         )
     assert reel == ["https://static.metricool.com/video/1/202610/mp4-1"]
-    assert downloaded == ["id:A", "id:B"]
+    assert downloaded == ["/01.png", "/02.png"]
     assert carousel == [
         "https://static.metricool.com/video/1/202610/png-1",
         "https://static.metricool.com/video/1/202610/png-2",

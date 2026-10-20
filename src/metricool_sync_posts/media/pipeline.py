@@ -14,7 +14,10 @@ from urllib.parse import urlparse, urlunparse
 
 from metricool_sync_posts.config import Settings
 from metricool_sync_posts.media.download import download_to_path
-from metricool_sync_posts.media.dropbox_host import download_shared_file
+from metricool_sync_posts.media.dropbox_host import (
+    download_shared_file,
+    download_shared_link_file,
+)
 from metricool_sync_posts.media.errors import MediaHostError
 from metricool_sync_posts.media.ffmpeg_util import (
     IG_MAX_BYTES,
@@ -87,6 +90,8 @@ def prepare_media_for_metricool(
     drive_file_id: str | None = None,
     dropbox_file_id: str | None = None,
     dropbox_name: str | None = None,
+    dropbox_path: str | None = None,
+    dropbox_in_account: bool = False,
     networks: list[str] | None = None,
 ) -> str | None:
     """Download the source file and return its Metricool static URL."""
@@ -99,20 +104,19 @@ def prepare_media_for_metricool(
     if is_metricool_static_url(source_url):
         logger.info("Media already on static.metricool.com")
         return strip_extension_hint(source_url)
-    if is_dropbox_folder_url(source_url) and not dropbox_file_id:
-        raise MediaHostError(
-            "Dropbox folder link was not resolved to a file. "
-            "A /scl/fo/ URL with dl=1 is a ZIP, not the video."
-        )
-
     work = settings.media_work_dir
     work.mkdir(parents=True, exist_ok=True)
     ext = extension_from_url(dropbox_name or source_url)
     local = work / f"media{work_suffix}{ext if ext != '.bin' else '.bin'}"
-    if dropbox_file_id:
-        download_shared_file(settings, dropbox_file_id, local)
-    else:
-        download_to_path(source_url, local, settings=settings)
+    _download_source(
+        settings,
+        source_url,
+        local,
+        dropbox_file_id=dropbox_file_id,
+        dropbox_name=dropbox_name,
+        dropbox_path=dropbox_path,
+        dropbox_in_account=dropbox_in_account,
+    )
     _reject_zip(local)
 
     local, detected = ensure_media_suffix(local, mime=drive_mime)
@@ -175,6 +179,47 @@ def apply_instagram_video_limits(settings: Settings, path: Path, *, max_width: i
         )
     except RuntimeError as exc:
         raise MediaHostError(str(exc)) from exc
+
+
+def _download_source(
+    settings: Settings,
+    source_url: str,
+    local: Path,
+    *,
+    dropbox_file_id: str | None,
+    dropbox_name: str | None,
+    dropbox_path: str | None,
+    dropbox_in_account: bool,
+) -> None:
+    """Download one resolved source.
+
+    Files mounted in our Dropbox use ``files/download`` by id. Files inside a
+    folder shared by another account (no ``path_lower``) use
+    ``sharing/get_shared_link_file``. ``/scl/fi/`` links stay on the public URL.
+    """
+    if dropbox_in_account and dropbox_file_id:
+        download_shared_file(settings, dropbox_file_id, local)
+        return
+    if is_dropbox_folder_url(source_url):
+        relative = (dropbox_path or "").strip()
+        if not relative and dropbox_name:
+            relative = f"/{dropbox_name.lstrip('/')}"
+        if not relative and not dropbox_file_id:
+            raise MediaHostError(
+                "Dropbox folder link was not resolved to a file. "
+                "A /scl/fo/ URL with dl=1 is a ZIP, not the video."
+            )
+        if not relative:
+            raise MediaHostError(
+                "Dropbox folder file has no path inside the shared folder. "
+                "A /scl/fo/ URL with dl=1 is a ZIP, not the video."
+            )
+        download_shared_link_file(settings, source_url, relative, local)
+        return
+    if dropbox_file_id:
+        download_shared_file(settings, dropbox_file_id, local)
+        return
+    download_to_path(source_url, local, settings=settings)
 
 
 def _reject_zip(path: Path) -> None:

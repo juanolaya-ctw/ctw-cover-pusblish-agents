@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 from metricool_sync_posts.config import Settings
 from metricool_sync_posts.cover.attach import (
@@ -13,13 +14,32 @@ from metricool_sync_posts.cover.attach import (
 from metricool_sync_posts.cover.bridge import prepare_cover_for_publish_task
 from metricool_sync_posts.jobs.common import publication_dt
 from metricool_sync_posts.jobs.content_types import infer_instagram_type
+from metricool_sync_posts.media.dropbox_host import (
+    FILE_NOT_FOUND_REASON,
+    NO_COVER_IN_FOLDER,
+    download_shared_entry,
+    find_shared_cover,
+)
 from metricool_sync_posts.media.errors import MediaHostError
-from metricool_sync_posts.media.urls import is_dropbox_url, is_google_drive_url
+from metricool_sync_posts.media.urls import (
+    is_dropbox_folder_url,
+    is_dropbox_url,
+    is_google_drive_url,
+)
 from metricool_sync_posts.metricool.client import MetricoolClient
 
 logger = logging.getLogger(__name__)
 
 _REEL_TYPES = frozenset({"REEL", "TRIAL_REEL"})
+# Agent reasons that mean "could not see the still", not "render failed".
+_LOOKUP_REASONS = frozenset(
+    {
+        "missing_frame",
+        "missing_cover",
+        "unreadable_folder",
+        "unsupported_link",
+    }
+)
 _AGENT_REASONS = frozenset(
     {
         "missing_frame",
@@ -122,7 +142,35 @@ def resolve_instagram_reel_cover(
             _log(page_id, "ready", "existing", "-")
             return ReelCover(cover_url=existing)
 
+    archivo = getattr(row, "final_file_url", "") or ""
+    dropbox_still: dict | None = None
+    if is_dropbox_folder_url(archivo):
+        if dry_run:
+            logger.info(
+                "[dry-run] Would look up the reel still in the Dropbox shared folder for %s",
+                page_id,
+            )
+            if not (settings.ctw_cover_agent_path or "").strip():
+                _log(page_id, "would_prepare", "dropbox", "dry_run")
+                return ReelCover()
+        else:
+            located = _locate_dropbox_still(settings, archivo, page_id)
+            if isinstance(located, ReelCover):
+                return located
+            if isinstance(located, dict):
+                dropbox_still = located
+
     if not (settings.ctw_cover_agent_path or "").strip():
+        if dropbox_still is not None:
+            return _cover_from_dropbox_still(
+                settings=settings,
+                metricool=metricool,
+                page_id=page_id,
+                page_url=page_url,
+                archivo=archivo,
+                entry=dropbox_still,
+                dry_run=dry_run,
+            )
         _log(page_id, "skipped", "-", "missing_cover")
         if require:
             return ReelCover(
@@ -133,6 +181,16 @@ def resolve_instagram_reel_cover(
 
     result = prepare_cover_for_publish_task(settings, row, dry_run=dry_run)
     if not isinstance(result, dict):
+        if dropbox_still is not None and not dry_run:
+            return _cover_from_dropbox_still(
+                settings=settings,
+                metricool=metricool,
+                page_id=page_id,
+                page_url=page_url,
+                archivo=archivo,
+                entry=dropbox_still,
+                dry_run=False,
+            )
         _log(page_id, "skipped", "-", "error")
         if require and not dry_run:
             return ReelCover(
@@ -151,6 +209,18 @@ def resolve_instagram_reel_cover(
     source = _source(row, result, existing=False)
     reason = str(result.get("reason") or "").strip() or None
     if not result.get("ready"):
+        if dropbox_still is not None and (reason or "") in _LOOKUP_REASONS:
+            fetched = _cover_from_dropbox_still(
+                settings=settings,
+                metricool=metricool,
+                page_id=page_id,
+                page_url=page_url,
+                archivo=archivo,
+                entry=dropbox_still,
+                dry_run=dry_run,
+            )
+            if fetched.cover_url or fetched.skip_reason:
+                return fetched
         reported = reason if reason in _AGENT_REASONS else (reason or "error")
         _log(page_id, "not_ready", source, reported)
         if require:
@@ -189,6 +259,85 @@ def resolve_instagram_reel_cover(
 
     _log(page_id, "skipped", source, "missing_cover")
     if require:
+        return ReelCover(
+            skip_reason="missing_cover",
+            skip_message=f"Schedule skip: missing cover for {page_url}",
+        )
+    return ReelCover()
+
+
+def _locate_dropbox_still(
+    settings: Settings,
+    archivo: str,
+    page_id: str,
+) -> ReelCover | dict | None:
+    """The still entry, a skip decision, or None to keep the normal cover path.
+
+    A missing image with covers optional does not skip: the cover agent can
+    still run. ``sharing.read`` and a required still that is not in the folder
+    are their own skip reasons, not ``missing_cover``.
+    """
+    try:
+        image = find_shared_cover(settings, archivo)
+    except MediaHostError as exc:
+        _log(page_id, "skipped", "dropbox", exc.reason)
+        return ReelCover(skip_reason=exc.reason, skip_message=str(exc))
+    if image is None:
+        if not settings.require_cover_for_schedule:
+            return None
+        _log(page_id, "skipped", "dropbox", FILE_NOT_FOUND_REASON)
+        return ReelCover(skip_reason=FILE_NOT_FOUND_REASON, skip_message=NO_COVER_IN_FOLDER)
+    return image
+
+
+def _cover_from_dropbox_still(
+    *,
+    settings: Settings,
+    metricool: MetricoolClient,
+    page_id: str,
+    page_url: str,
+    archivo: str,
+    entry: dict,
+    dry_run: bool,
+) -> ReelCover:
+    """Download the still with the shared link (or by id when it is our file)."""
+    name = str(entry.get("name") or "cover.png")
+    safe = Path(name).name
+    if safe in {"", ".", ".."}:
+        safe = "cover.png"
+    dest = settings.media_work_dir / "dropbox-cover" / safe
+    try:
+        download_shared_entry(settings, archivo, entry, dest)
+    except MediaHostError as exc:
+        _log(page_id, "skipped", "dropbox", exc.reason)
+        return ReelCover(skip_reason=exc.reason, skip_message=str(exc))
+    try:
+        cover_bytes = dest.read_bytes()
+    except OSError as exc:
+        return ReelCover(
+            skip_reason="media_host_failed",
+            skip_message=f"Schedule skip: media_host_failed for {page_url}: {exc}",
+        )
+    try:
+        cover_url = resolve_cover_url_for_metricool(
+            settings=settings,
+            metricool=metricool,
+            page_id=page_id,
+            dry_run=dry_run,
+            cover_bytes=cover_bytes,
+            publication=None,
+        )
+    except MediaHostError as exc:
+        _log(page_id, "skipped", "dropbox", "media_host_failed")
+        return ReelCover(
+            skip_reason="media_host_failed",
+            skip_message=f"Schedule skip: media_host_failed for {page_url}: {exc}",
+        )
+    if cover_url:
+        _log(page_id, "ready", "dropbox", "-")
+        return ReelCover(cover_url=cover_url)
+    _log(page_id, "skipped", "dropbox", "missing_cover")
+    if settings.require_cover_for_schedule:
         return ReelCover(
             skip_reason="missing_cover",
             skip_message=f"Schedule skip: missing cover for {page_url}",
