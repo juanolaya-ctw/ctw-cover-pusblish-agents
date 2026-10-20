@@ -30,6 +30,10 @@ from metricool_sync_posts.jobs.parrilla_alerts import (
     review_programado_gaps,
 )
 from metricool_sync_posts.jobs.schedule_guard import ScheduleGuard
+from metricool_sync_posts.media.dropbox_host import (
+    FILE_NOT_FOUND_REASON,
+    SHARING_READ_REASON,
+)
 from metricool_sync_posts.media.errors import MediaHostError
 from metricool_sync_posts.media.final_file import (
     FinalFileKind,
@@ -93,9 +97,34 @@ REASON_LABELS_ES: dict[str, str] = {
     "prior_attempt": "un intento anterior de programarla quedó bloqueado",
     "media_host_failed": "no se pudo descargar o subir el archivo",
     "missing_media": "no se encontró el archivo",
+    "dropbox_sharing_read": "la app de Dropbox no tiene el permiso sharing.read",
+    "dropbox_file_not_found": "el archivo no existe en la carpeta compartida de Dropbox",
     "miniatura_not_a_post": "es una miniatura, no un post",
     "schedule_error": "error de Metricool al programar",
 }
+
+
+def _cover_alert_text(cover) -> str:
+    """Slack text for a reel-cover skip. Scope and missing-file stay specific."""
+    if cover.skip_reason in {SHARING_READ_REASON, FILE_NOT_FOUND_REASON}:
+        return cover.skip_message or cover.skip_reason
+    return (
+        "no se programó: problema con la portada del Reel "
+        f'("Miniatura" o "Archivo Final"). Detalle: '
+        f"{cover.skip_message or cover.skip_reason}"
+    )
+
+
+def _media_alert_text(exc: MediaHostError) -> str:
+    if exc.reason == SHARING_READ_REASON:
+        return str(exc)
+    if exc.reason == FILE_NOT_FOUND_REASON:
+        return f"no se programó: {exc}"
+    return (
+        'no se programó: no pude descargar o subir el archivo de "Archivo '
+        'Final" (revisa que el link sea público o que la carpeta esté '
+        f"compartida). Detalle: {exc}"
+    )
 
 
 def _piece_label(row) -> str:
@@ -1180,14 +1209,7 @@ def run_schedule(
             if cover.skip_reason:
                 stats["skipped"] += 1
                 logger.warning("Skip %s: %s", row.page_id, cover.skip_reason)
-                _alert(
-                    ctx,
-                    row,
-                    cover.skip_reason,
-                    "no se programó: problema con la portada del Reel "
-                    f'("Miniatura" o "Archivo Final"). Detalle: '
-                    f"{cover.skip_message or cover.skip_reason}",
-                )
+                _alert(ctx, row, cover.skip_reason, _cover_alert_text(cover))
                 continue
 
             youtube_existing = file_ref.kind == FinalFileKind.YOUTUBE
@@ -1206,15 +1228,9 @@ def run_schedule(
                     )
                 except MediaHostError as exc:
                     stats["skipped"] += 1
-                    logger.warning("Skip %s: media_host_failed: %s", row.page_id, exc)
-                    _alert(
-                        ctx,
-                        row,
-                        "media_host_failed",
-                        'no se programó: no pude descargar o subir el archivo de "Archivo '
-                        'Final" (revisa que el link sea público o que la carpeta esté '
-                        f"compartida). Detalle: {exc}",
-                    )
+                    reason = exc.reason or "media_host_failed"
+                    logger.warning("Skip %s: %s: %s", row.page_id, reason, exc)
+                    _alert(ctx, row, reason, _media_alert_text(exc))
                     continue
 
             if not media_urls:
