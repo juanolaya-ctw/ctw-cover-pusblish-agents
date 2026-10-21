@@ -11,7 +11,11 @@ from metricool_sync_posts.cover.attach import (
     resolve_cover_url_for_metricool,
     resolve_miniatura_url,
 )
-from metricool_sync_posts.cover.bridge import prepare_cover_for_publish_task
+from metricool_sync_posts.cover.bridge import (
+    prepare_cover_for_publish_task,
+    publish_task_from_row,
+    render_cover_on_local_frame,
+)
 from metricool_sync_posts.jobs.common import publication_dt
 from metricool_sync_posts.jobs.content_types import infer_instagram_type
 from metricool_sync_posts.media.dropbox_host import (
@@ -31,15 +35,6 @@ from metricool_sync_posts.metricool.client import MetricoolClient
 logger = logging.getLogger(__name__)
 
 _REEL_TYPES = frozenset({"REEL", "TRIAL_REEL"})
-# Agent reasons that mean "could not see the still", not "render failed".
-_LOOKUP_REASONS = frozenset(
-    {
-        "missing_frame",
-        "missing_cover",
-        "unreadable_folder",
-        "unsupported_link",
-    }
-)
 _AGENT_REASONS = frozenset(
     {
         "missing_frame",
@@ -165,10 +160,12 @@ def resolve_instagram_reel_cover(
             return _cover_from_dropbox_still(
                 settings=settings,
                 metricool=metricool,
+                row=row,
                 page_id=page_id,
                 page_url=page_url,
                 archivo=archivo,
                 entry=dropbox_still,
+                titulo=text,
                 dry_run=dry_run,
             )
         _log(page_id, "skipped", "-", "missing_cover")
@@ -180,49 +177,43 @@ def resolve_instagram_reel_cover(
         return ReelCover()
 
     result = prepare_cover_for_publish_task(settings, row, dry_run=dry_run)
-    if not isinstance(result, dict):
-        if dropbox_still is not None and not dry_run:
-            return _cover_from_dropbox_still(
-                settings=settings,
-                metricool=metricool,
-                page_id=page_id,
-                page_url=page_url,
-                archivo=archivo,
-                entry=dropbox_still,
-                dry_run=False,
-            )
-        _log(page_id, "skipped", "-", "error")
-        if require and not dry_run:
-            return ReelCover(
-                skip_reason="error",
-                skip_message=f"Schedule skip: cover agent failed for {page_url}",
-            )
-        if dry_run:
-            logger.info("[dry-run] would prepare cover (titulo=%s)", text)
-        return ReelCover()
-
-    if result.get("dry_run_skipped"):
+    if isinstance(result, dict) and result.get("dry_run_skipped"):
         logger.info("[dry-run] would prepare cover (titulo=%s)", text)
         _log(page_id, "would_prepare", "-", "dry_run")
         return ReelCover()
 
-    source = _source(row, result, existing=False)
-    reason = str(result.get("reason") or "").strip() or None
-    if not result.get("ready"):
-        if dropbox_still is not None and (reason or "") in _LOOKUP_REASONS:
-            fetched = _cover_from_dropbox_still(
+    source = _source(row, result if isinstance(result, dict) else None, existing=False)
+    if not (isinstance(result, dict) and result.get("ready")):
+        reason, detail = _unready_reason(result)
+        _log(page_id, "not_ready", source, reason)
+        logger.info(
+            "prepare_cover_for_publish_task not ready page=%s reason=%s message=%s",
+            page_id,
+            reason,
+            detail,
+        )
+        if dropbox_still is not None and not dry_run:
+            return _cover_from_dropbox_still(
                 settings=settings,
                 metricool=metricool,
+                row=row,
                 page_id=page_id,
                 page_url=page_url,
                 archivo=archivo,
                 entry=dropbox_still,
-                dry_run=dry_run,
+                titulo=text,
+                dry_run=False,
             )
-            if fetched.cover_url or fetched.skip_reason:
-                return fetched
+        if not isinstance(result, dict):
+            if require and not dry_run:
+                return ReelCover(
+                    skip_reason="error",
+                    skip_message=f"Schedule skip: cover agent failed for {page_url}",
+                )
+            if dry_run:
+                logger.info("[dry-run] would prepare cover (titulo=%s)", text)
+            return ReelCover()
         reported = reason if reason in _AGENT_REASONS else (reason or "error")
-        _log(page_id, "not_ready", source, reported)
         if require:
             message = result.get("message") or f"Schedule skip: cover {reported} for {page_url}"
             return ReelCover(skip_reason=reported, skip_message=str(message))
@@ -290,17 +281,45 @@ def _locate_dropbox_still(
     return image
 
 
+def _unready_reason(result: dict | None) -> tuple[str, str]:
+    """Why ``prepare_cover_for_publish_task`` did not return a ready cover."""
+    if not isinstance(result, dict):
+        return "no_result", "prepare_cover_for_publish_task returned no result"
+    reason = str(result.get("reason") or "").strip() or "error"
+    message = str(result.get("message") or "").strip() or "-"
+    return reason, message
+
+
+def _render_skip_message(detail: str) -> str:
+    text = (
+        "No se armó la portada del Reel: el Titulo no quedó dibujado sobre el "
+        "frame de Dropbox, así que no se publica el frame sin el hook."
+    )
+    if detail and detail != "-":
+        return f"{text} Motivo: {detail}"
+    return text
+
+
 def _cover_from_dropbox_still(
     *,
     settings: Settings,
     metricool: MetricoolClient,
+    row,
     page_id: str,
     page_url: str,
     archivo: str,
     entry: dict,
+    titulo: str,
     dry_run: bool,
 ) -> ReelCover:
-    """Download the still with the shared link (or by id when it is our file)."""
+    """Download the still and render Titulo over it. Never upload the raw frame."""
+    if dry_run:
+        _log(page_id, "would_prepare", "dropbox", "dry_run")
+        logger.info(
+            "[dry-run] would render Titulo over the Dropbox still (titulo=%s)",
+            titulo,
+        )
+        return ReelCover()
     name = str(entry.get("name") or "cover.png")
     safe = Path(name).name
     if safe in {"", ".", ".."}:
@@ -312,18 +331,35 @@ def _cover_from_dropbox_still(
         _log(page_id, "skipped", "dropbox", exc.reason)
         return ReelCover(skip_reason=exc.reason, skip_message=str(exc))
     try:
-        cover_bytes = dest.read_bytes()
+        still_bytes = dest.read_bytes()
     except OSError as exc:
         return ReelCover(
             skip_reason="media_host_failed",
             skip_message=f"Schedule skip: media_host_failed for {page_url}: {exc}",
         )
+    rendered = render_cover_on_local_frame(
+        settings,
+        titulo=titulo,
+        frame_bytes=still_bytes,
+        frame_path=dest,
+        dry_run=False,
+        task=publish_task_from_row(row),
+    )
+    cover_bytes, fail_reason, fail_detail = _rendered_png(rendered, still_bytes)
+    if cover_bytes is None:
+        _log(page_id, "skipped", "dropbox", fail_reason)
+        if settings.require_cover_for_schedule:
+            return ReelCover(
+                skip_reason=fail_reason,
+                skip_message=_render_skip_message(fail_detail),
+            )
+        return ReelCover()
     try:
         cover_url = resolve_cover_url_for_metricool(
             settings=settings,
             metricool=metricool,
             page_id=page_id,
-            dry_run=dry_run,
+            dry_run=False,
             cover_bytes=cover_bytes,
             publication=None,
         )
@@ -340,6 +376,32 @@ def _cover_from_dropbox_still(
     if settings.require_cover_for_schedule:
         return ReelCover(
             skip_reason="missing_cover",
-            skip_message=f"Schedule skip: missing cover for {page_url}",
+            skip_message=_render_skip_message("la portada renderizada no se pudo subir"),
         )
     return ReelCover()
+
+
+def _rendered_png(
+    rendered: dict | None,
+    still_bytes: bytes,
+) -> tuple[bytes | None, str, str]:
+    """Designed cover bytes, or a skip reason when the still would go out raw."""
+    if not isinstance(rendered, dict) or not rendered.get("ready"):
+        reason = "render_failed"
+        detail = "no se pudo renderizar el Titulo sobre el frame"
+        if isinstance(rendered, dict):
+            raw_reason = str(rendered.get("reason") or "").strip()
+            if raw_reason:
+                reason = raw_reason if raw_reason in _AGENT_REASONS else "render_failed"
+            detail = str(rendered.get("message") or "").strip() or detail
+        return None, reason, detail
+    raw = rendered.get("cover_bytes")
+    if isinstance(raw, (bytes, bytearray)) and raw:
+        cover = bytes(raw)
+        if cover == still_bytes:
+            return None, "render_failed", "el render devolvió el frame sin el Titulo"
+        return cover, "", ""
+    link = rendered.get("cover_url")
+    if isinstance(link, str) and link.strip():
+        return None, "render_failed", "la portada no vino en bytes; no se usa el frame crudo"
+    return None, "render_failed", "el render no devolvió la portada"
